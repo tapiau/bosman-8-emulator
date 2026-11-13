@@ -72,3 +72,25 @@ przełączniki podświetlone, gdy aktywne) i kontrolki LINK / BEEP / WAIT.
 - [doc/ang3001-hardware.md](doc/ang3001-hardware.md) — sprzęt terminala
 
 ROM-y (`roms/`) pochodzą z repozytoriów analizy `bosman-8-rom` i `bosman-8-ang-3000-rom`.
+
+## Wydania (Linux / Windows / macOS)
+
+Paczki budują GitHub Actions (`.github/workflows/release.yml`) na maszynach
+z Linuksem, Windowsem i macOS (arm64 i x86_64). Każda paczka zawiera
+`bosman8`, `ang3001`, `b8disk`, katalogi `roms/`, `disks/`, `doc/` i README —
+ROM-y są szukane obok programu, więc wystarczy rozpakować i uruchomić.
+
+Publikacja wydania:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0     # → workflow buduje paczki i tworzy Release na GitHubie
+```
+
+Bez taga: zakładka Actions → Release → „Run workflow” buduje paczki jako
+artefakty (do pobrania z przebiegu), bez publikowania. Każdy push uruchamia też
+`ci.yml` (testy na trzech systemach).
+
+macOS: programy nie są podpisane — przy pierwszym uruchomieniu
+`xattr -d com.apple.quarantine bosman8 ang3001 b8disk` albo „Otwórz” z menu
+kontekstowego w Finderze.

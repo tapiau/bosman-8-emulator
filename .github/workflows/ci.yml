@@ -1,0 +1,30 @@
+# Build + tests on every push / pull request, on all three systems.
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+    tags-ignore: ["v*"]
+  pull_request:
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest, macos-14]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libx11-dev libxcursor-dev libxrandr-dev \
+            libxi-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --locked
+      - name: Build without GUI
+        run: cargo build -p bosman8 --no-default-features --locked

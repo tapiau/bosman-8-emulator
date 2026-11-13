@@ -1,0 +1,98 @@
+# Builds Linux / Windows / macOS packages.
+# - push of a tag "v*" (e.g. v0.1.0): build + publish a GitHub Release with the packages
+# - manual run (Actions → Release → Run workflow): build only, packages as workflow artifacts
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-22.04          # older glibc → runs on more distributions
+            target: x86_64-unknown-linux-gnu
+          - name: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - name: macos-arm64
+            os: macos-14
+            target: aarch64-apple-darwin
+          - name: macos-x86_64
+            os: macos-14
+            target: x86_64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libx11-dev libxcursor-dev libxrandr-dev \
+            libxi-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Test
+        # x86_64 macOS binaries are cross-built on an arm64 runner; tests run on the native jobs.
+        if: matrix.target != 'x86_64-apple-darwin'
+        run: cargo test --workspace --release --locked --target ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --workspace --release --locked --target ${{ matrix.target }}
+
+      - name: Package
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          [[ "$GITHUB_REF_TYPE" == "tag" ]] || VERSION="dev-${GITHUB_SHA::7}"
+          PKG="bosman8-emulator-${VERSION}-${{ matrix.name }}"
+          EXT=""; [[ "$RUNNER_OS" == "Windows" ]] && EXT=".exe"
+          mkdir -p "dist/$PKG"
+          for b in bosman8 ang3001 b8disk; do
+            cp "target/${{ matrix.target }}/release/$b$EXT" "dist/$PKG/"
+          done
+          cp -r roms disks doc README.md "dist/$PKG/"
+          cd dist
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            7z a -tzip "$PKG.zip" "$PKG" >/dev/null
+          else
+            tar czf "$PKG.tar.gz" "$PKG"
+          fi
+          echo "PKG=$PKG" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PKG }}
+          path: dist/${{ env.PKG }}.*
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
