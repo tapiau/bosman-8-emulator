@@ -25,6 +25,9 @@ ang3001 --link serial:COM3@115200             # terminal na port szeregowy hosta
 ang3001 --load-ter ../bosman-8-ang-3000-rom/demo/cube/CUBE.TER   # demo wgrane wprost do terminala
 ```
 
+Dyskietka z narzędziami CP/M (PIP, STAT, ED, ZSID, …): `disks/narzedzia.img`, zob.
+[disks/README.md](disks/README.md). Obrazy edytuje `b8disk` (`b8disk put b.img PLIK.COM`, `b8disk ls b.img`).
+
 Specyfikacje łącza: `none`, `loopback`, `stdio`, `tcp-listen:ADDR:PORT`,
 `tcp:HOST:PORT`, `serial:DEV[@BAUD]`. Pełna lista opcji: `--help`.
 

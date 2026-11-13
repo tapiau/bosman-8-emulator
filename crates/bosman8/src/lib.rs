@@ -15,6 +15,7 @@ use b8_link::Endpoint;
 use iz80::{Cpu, Machine};
 
 pub mod disk;
+pub mod cpmfs;
 
 /// CPU clock.
 pub const CPU_HZ: u32 = 4_000_000;

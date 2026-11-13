@@ -31,7 +31,7 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
 ## Faza 4 — integracja
 - ✅ T4.1 Bosman ↔ ANG po TCP: znak zachęty `A>` na ekranie terminala
 - ⏳ T4.2 Uruchomienie demek z `bosman-8-ang-3000-rom/demo` (wstrzyknięcie plików na RAM-dysk)
-- ⏳ T4.3 Narzędzie do wgrywania plików na RAM-dysk / obrazy dysków
+- ✅ T4.3 Narzędzie `b8disk` (new/ls/put/get/rm) dla obrazów dyskietek 200/400/800 KB; obraz `disks/narzedzia.img`
 
 ## Faza 5 — później
 - ⏳ Dźwięk (cpal) w terminalu
@@ -53,3 +53,5 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
   [ang3001-hardware.md](ang3001-hardware.md).
 - 2026-11-13: T4.1 — oba emulatory jako osobne procesy po TCP: baner „BOSMAN 8 / CPM/R” w ramce, `DIR` wpisane na
   klawiaturze terminala → „Brak pliku”. Dodane README z instrukcją uruchomienia.
+- 2026-11-13: T4.3 — `b8disk` + moduł `cpmfs`; obraz `disks/narzedzia.img` (14 narzędzi CP/M), zweryfikowany
+  przez cpmtools i w emulatorze (`DIR B:`, `B:STAT`, `PIP A:=B:...`).
