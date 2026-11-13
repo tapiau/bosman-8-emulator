@@ -178,10 +178,12 @@ fn remote_drives_scenario(server_rom: &[u8], start_command: &str) {
     n[1].type_str("DIR E:\r");
     assert!(run_until(&mut n, 1, "(R)", 5.0), "client: {}", n[1].text());
     n[1].type_str("D");
-    let ok = run_until(&mut n, 1, "TRPLIK", 30.0);
+    // Wait for the completed directory, including files listed after TRPLIK.
+    // Sending a command mid-listing can have its first key consumed by BDOS.
+    let ok = run_until(&mut n, 1, "A>", 30.0);
     let text = n[1].text();
     assert!(ok, "DIR E: = server's B: (tools disk): {text}");
-    for f in ["PIP", "STAT", "SUBMIT", "UNERASE"] {
+    for f in ["PIP", "STAT", "SUBMIT", "UNERASE", "TRPLIK"] {
         assert!(text.contains(f), "{f} missing: {text}");
     }
     assert!(!text.contains("Brak komunikacji"), "{text}");

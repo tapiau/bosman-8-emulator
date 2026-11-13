@@ -24,7 +24,7 @@ Narzędzia z `bosman-8/software/soft/cpm-utilities`:
 | TRPLIK.COM | transfer plików |
 
 Pominięte: SID (zastępuje go ZSID), FORMAT (operuje na sprzęcie, nieprzetestowany
-w emulatorze), TESTRAM. Na dyskietce zostaje 124 KB wolnego miejsca.
+w emulatorze), TESTRAM. Na dyskietce zostaje 120 KB wolnego miejsca.
 
 Użycie (emulator zapisuje zmiany do obrazu — pracuj na kopii, jeśli chcesz
 zachować oryginał):
@@ -33,3 +33,21 @@ zachować oryginał):
 cp disks/narzedzia.img /tmp/b.img
 bosman8 --disk-b /tmp/b.img
 ```
+
+## Demo terminala ANG-3001
+
+Dodatkowo na obrazie są pliki z `bosman-8-ang-3000-rom/demo`:
+
+| Plik | Do czego |
+|---|---|
+| RUNTERM.COM | ładowanie i uruchamianie programów `.TER` na terminalu |
+| CUBE.TER | demo obracającej się kostki 3D |
+
+Przy obrazie zamontowanym jako B: i podłączonym terminalu ANG-3001:
+
+```text
+B:
+RUNTERM CUBE
+```
+
+Reset terminala kończy demo.
