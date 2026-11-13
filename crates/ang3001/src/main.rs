@@ -47,7 +47,8 @@ ang3001 - ANG-3001 graphics terminal emulator (Z80B, 512x256 mono)
 USAGE: ang3001 [OPTIONS]
 
 OPTIONS:
-  --rom FILE          ROM image (default: built-in roms/ang3001.bin)
+  --rom FILE          ROM image (default: ang3001_rom from /etc/bosman-8-emulator.conf,
+                      else built-in roms/ang3001.bin)
   --link SPEC         serial line endpoint (default: tcp:127.0.0.1:3001)
                       none | loopback | stdio | tcp:HOST:PORT | tcp-listen:ADDR:PORT
                       | serial:DEV[@BAUD]
@@ -221,7 +222,21 @@ fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
         },
-        None => ang3001::DEFAULT_ROM.to_vec(),
+        // /etc/bosman-8-emulator.conf (ang3001_rom), else the built-in image.
+        None => match b8_link::sysconf::get_path("ang3001_rom") {
+            Some(p) => match std::fs::read(&p) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!(
+                        "ang3001: {}: {e} (from {}), using the built-in ROM",
+                        p.display(),
+                        b8_link::sysconf::CONF_PATH
+                    );
+                    ang3001::DEFAULT_ROM.to_vec()
+                }
+            },
+            None => ang3001::DEFAULT_ROM.to_vec(),
+        },
     };
     let link = match b8_link::open(&o.link) {
         Ok(l) => l,

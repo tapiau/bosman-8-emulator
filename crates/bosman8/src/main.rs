@@ -15,7 +15,8 @@ usage: bosman8 [options]
   --no-gui               headless (command line) mode; without it a GUI window
                          opens and the options below pre-set its settings
   --config PATH          GUI settings file (default: <config dir>/bosman8/gui.json)
-  --rom PATH             ROM image (default roms/bosman8.bin, also next to the executable)
+  --rom PATH             ROM image (default: bosman8_rom from /etc/bosman-8-emulator.conf,
+                         else roms/bosman8.bin here or next to the executable)
   --term SPEC            terminal line, SIO-A (default tcp-listen:127.0.0.1:3001)
   --aux SPEC             V.24 line, SIO-B (default none)
                          SPEC: none | loopback | stdio | tcp-listen:ADDR:PORT |
@@ -119,11 +120,17 @@ fn find_rom(explicit: Option<&Path>) -> Result<(PathBuf, Vec<u8>), String> {
     match explicit {
         Some(p) => candidates.push(p.to_path_buf()),
         None => {
+            // System configuration (Debian package): /etc/bosman-8-emulator.conf, key bosman8_rom.
+            if let Some(p) = b8_link::sysconf::get_path("bosman8_rom") {
+                candidates.push(p);
+            }
             candidates.push(PathBuf::from("roms/bosman8.bin"));
             if let Ok(exe) = std::env::current_exe() {
                 if let Some(dir) = exe.parent() {
                     candidates.push(dir.join("bosman8.bin"));
                     candidates.push(dir.join("roms/bosman8.bin"));
+                    // Installed layout (Debian package, `make install` style): <prefix>/bin + <prefix>/share
+                    candidates.push(dir.join("../share/bosman8-emulator/roms/bosman8.bin"));
                 }
             }
         }

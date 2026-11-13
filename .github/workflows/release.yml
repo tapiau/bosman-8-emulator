@@ -1,4 +1,4 @@
-# Builds Linux / Windows / macOS packages.
+# Builds Linux / Windows / macOS packages and a Debian package (amd64).
 # - push of a tag "v*" (e.g. v0.1.0): build + publish a GitHub Release with the packages
 # - manual run (Actions → Release → Run workflow): build only, packages as workflow artifacts
 name: Release
@@ -77,10 +77,20 @@ jobs:
           fi
           echo "PKG=$PKG" >> "$GITHUB_ENV"
 
+      - name: Debian package
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          DEBVER="${GITHUB_REF_NAME#v}"
+          [[ "$GITHUB_REF_TYPE" == "tag" ]] || DEBVER="0.0.0~git${GITHUB_SHA::7}"
+          packaging/debian/build-deb.sh "$DEBVER" target/${{ matrix.target }}/release dist
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ env.PKG }}
-          path: dist/${{ env.PKG }}.*
+          path: |
+            dist/${{ env.PKG }}.*
+            dist/*.deb
 
   publish:
     name: Publish GitHub Release

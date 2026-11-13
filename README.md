@@ -91,6 +91,14 @@ Bez taga: zakładka Actions → Release → „Run workflow” buduje paczki jak
 artefakty (do pobrania z przebiegu), bez publikowania. Każdy push uruchamia też
 `ci.yml` (testy na trzech systemach).
 
+Paczka Debiana/Ubuntu (`bosman8-emulator_X.Y.Z_amd64.deb`) jest dołączana do
+każdego wydania; lokalnie: `cargo build --release && packaging/debian/build-deb.sh`.
+Instaluje programy do `/usr/bin`, ROM-y i dyskietkę do `/usr/share/bosman8-emulator`,
+skróty w menu, a ścieżki ROM-ów w `/etc/bosman-8-emulator.conf` (klucze
+`bosman8_rom`, `ang3001_rom`; plik konfiguracyjny — aktualizacja go nie nadpisze).
+Dyskietkę z `/usr/share` skopiuj do katalogu domowego przed użyciem (emulator
+zapisuje zmiany do obrazu).
+
 macOS: programy nie są podpisane — przy pierwszym uruchomieniu
 `xattr -d com.apple.quarantine bosman8 ang3001 b8disk` albo „Otwórz” z menu
 kontekstowego w Finderze.

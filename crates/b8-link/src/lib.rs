@@ -36,6 +36,7 @@
 
 use std::io;
 
+pub mod sysconf;
 mod mem;
 mod serial;
 mod stdio;
