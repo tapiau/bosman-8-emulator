@@ -10,8 +10,8 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
 
 ## Faza 1 — szkielet
 - ✅ T1.1 Workspace Cargo, crate'y `b8-link`, `b8-chips`, `bosman8`, `ang3001`
-- 🔄 T1.2 `b8-link`: trait endpointu + backendy null / TCP listen / TCP connect / stdio / serial hosta
-- 🔄 T1.3 `b8-chips`: 74LS259, 8253, Z80-SIO (tryb bajtowy), 8251
+- ✅ T1.2 `b8-link`: trait endpointu + backendy null / TCP listen / TCP connect / stdio / serial hosta
+- ✅ T1.3 `b8-chips`: 74LS259, 8253, Z80-SIO (tryb bajtowy), 8251
 
 ## Faza 2 — Bosman-8
 - ⏳ T2.1 Pamięć: ROM 32 KB / 8 banków RAM 32 KB w dolnej połowie, wspólne górne 32 KB

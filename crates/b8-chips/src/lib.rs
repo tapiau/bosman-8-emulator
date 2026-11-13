@@ -17,4 +17,4 @@ pub use latch::Latch259;
 pub use pit8253::Pit8253;
 pub use sio::{Sio, SioChannel};
 pub use usart8251::Usart8251;
-pub use wd1770::{DiskImage, Wd1770};
+pub use wd1770::{DiskImage, Wd1770, Wd1770Timing};
