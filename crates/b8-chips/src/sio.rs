@@ -14,9 +14,9 @@
 //! from 8253 frequency and WR4 clock divider — use `set_char_cycles`). After a
 //! data write the Tx buffer is busy that long, then the byte becomes available
 //! through `take_tx()`. Received bytes are queued with `push_rx()` (unbounded
-//! host-side queue) and moved into the Rx register one at a time, when the
-//! register is empty and at least `char_cycles` have passed since the previous
-//! one. Interrupts are not needed by the ROMs — not implemented.
+//! host-side queue) and moved into the 3-byte Rx FIFO one at a time, when the
+//! FIFO has room and at least `char_cycles` have passed since the previous
+//! one (a full FIFO makes bytes wait in the host queue — no overruns). Interrupts are not needed by the ROMs — not implemented.
 //!
 //! Model details:
 //! - The transmitter has a buffer and a shift register like the real chip. A
@@ -33,6 +33,12 @@
 //!   latched break bit; "reset ext/status" (WR0 command 2) clears the latch,
 //!   but not a break still in progress — so the Bosman sequence
 //!   `OUT (82h),10h ; IN A,(82h) ; BIT 7,A` sees a break while it lasts.
+//! - Receiver hold-off: [`SioChannel::hold_rx`] keeps the host-side queue
+//!   from feeding the Rx FIFO for a given time. The machine uses it after
+//!   the channel's baud-rate clock is reprogrammed: the host queue loses the
+//!   inter-byte gaps of the remote sender (TCP, USB serial and the emulators'
+//!   time slices bunch bytes together), while ROM code that re-initialises the
+//!   line typically discards whatever it receives during a settling delay.
 //! - Transmit side break (WR5 bit 4) is reported by [`SioChannel::break_active`]
 //!   for the machine to forward to its endpoint.
 
@@ -40,6 +46,7 @@ use std::collections::VecDeque;
 
 const DEFAULT_CHAR_CYCLES: u32 = 1000;
 const DEFAULT_BREAK_CYCLES: u32 = 200_000;
+const RX_FIFO_DEPTH: usize = 3;
 
 #[derive(Debug, Clone)]
 pub struct SioChannel {
@@ -49,8 +56,10 @@ pub struct SioChannel {
     break_cycles: u32,
     // Receiver
     rx_queue: VecDeque<u8>,
-    rx_reg: Option<u8>,
+    /// Receive FIFO (3 bytes deep on the real chip).
+    rx_fifo: VecDeque<u8>,
     rx_since: u32,
+    rx_hold: u32,
     // Transmitter
     tx_buf: Option<u8>,
     tx_shift: Option<u8>,
@@ -75,8 +84,9 @@ impl SioChannel {
             char_cycles: DEFAULT_CHAR_CYCLES,
             break_cycles: DEFAULT_BREAK_CYCLES,
             rx_queue: VecDeque::new(),
-            rx_reg: None,
+            rx_fifo: VecDeque::new(),
             rx_since: u32::MAX,
+            rx_hold: 0,
             tx_buf: None,
             tx_shift: None,
             tx_remaining: 0,
@@ -91,7 +101,7 @@ impl SioChannel {
     pub fn reset(&mut self) {
         self.ptr = 0;
         self.wr = [0; 8];
-        self.rx_reg = None;
+        self.rx_fifo.clear();
         self.rx_since = u32::MAX;
         self.tx_buf = None;
         self.tx_shift = None;
@@ -136,7 +146,7 @@ impl SioChannel {
 
     fn rr0(&self) -> u8 {
         let mut v = 0x08 | 0x20; // DCD, CTS asserted
-        if self.rx_reg.is_some() {
+        if !self.rx_fifo.is_empty() {
             v |= 0x01;
         }
         if self.tx_buf.is_none() {
@@ -159,7 +169,7 @@ impl SioChannel {
     }
 
     pub fn read_data(&mut self) -> u8 {
-        self.rx_reg.take().unwrap_or(0xFF)
+        self.rx_fifo.pop_front().unwrap_or(0xFF)
     }
 
     /// Byte transmitted by the CPU, ready to be sent to the endpoint.
@@ -167,7 +177,7 @@ impl SioChannel {
         self.tx_out.pop_front()
     }
 
-    /// Byte received from the endpoint.
+    /// Byte received from the endpoint (queued, see module docs).
     pub fn push_rx(&mut self, b: u8) {
         self.rx_queue.push_back(b);
     }
@@ -176,6 +186,14 @@ impl SioChannel {
     pub fn push_break(&mut self) {
         self.break_remaining = self.break_cycles.max(1);
         self.break_latched = true;
+    }
+
+    /// Don't move bytes from the host-side queue into the Rx FIFO for the
+    /// next `cycles` CPU cycles (restarts a hold-off already in progress if
+    /// `cycles` is longer than what is left of it). Bytes already in the Rx
+    /// register stay there; nothing is lost.
+    pub fn hold_rx(&mut self, cycles: u32) {
+        self.rx_hold = self.rx_hold.max(cycles);
     }
 
     pub fn set_char_cycles(&mut self, cycles: u32) {
@@ -238,7 +256,7 @@ impl SioChannel {
         self.tx_buf.is_none() && self.tx_shift.is_none()
     }
 
-    /// Number of bytes waiting in the host-side Rx queue (not yet in the Rx register).
+    /// Number of bytes waiting in the host-side Rx queue (not yet in the Rx FIFO).
     pub fn rx_pending(&self) -> usize {
         self.rx_queue.len()
     }
@@ -267,12 +285,14 @@ impl SioChannel {
         }
         // Receiver.
         self.rx_since = self.rx_since.saturating_add(cpu_cycles);
+        self.rx_hold = self.rx_hold.saturating_sub(cpu_cycles);
         if self.rx_enabled()
-            && self.rx_reg.is_none()
+            && self.rx_hold == 0
+            && self.rx_fifo.len() < RX_FIFO_DEPTH
             && self.rx_since >= self.char_cycles
         {
             if let Some(b) = self.rx_queue.pop_front() {
-                self.rx_reg = Some(b);
+                self.rx_fifo.push_back(b);
                 self.rx_since = 0;
             }
         }
@@ -523,6 +543,25 @@ mod tests {
         assert!(!ch.break_active());
         assert!(ch.all_sent());
         assert_eq!(ch.read_ctrl() & 1, 0);
+    }
+
+    #[test]
+    fn rx_hold_delays_queue() {
+        let mut ch = SioChannel::new();
+        init(&mut ch, 0xC1, 0x4C, 0xE8);
+        ch.set_char_cycles(100);
+        ch.push_rx(0x41);
+        ch.hold_rx(1000);
+        ch.tick(999);
+        assert_eq!(ch.read_ctrl() & 1, 0, "held");
+        ch.tick(1);
+        assert_eq!(ch.read_ctrl() & 1, 1, "released");
+        assert_eq!(ch.read_data(), 0x41);
+        // A byte already in the Rx FIFO is not affected.
+        ch.push_rx(0x42);
+        ch.tick(100);
+        ch.hold_rx(1000);
+        assert_eq!(ch.read_data(), 0x42);
     }
 
     #[test]

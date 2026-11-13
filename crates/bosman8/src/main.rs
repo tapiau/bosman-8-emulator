@@ -26,6 +26,8 @@ usage: bosman8 [options]
   --max-seconds N        stop after N emulated seconds
   --trace-io             log I/O port accesses (first 16 per port) to stderr
   --trace-cpu-from ADDR  trace instructions from PC=ADDR (hex) to stderr
+  --trace-aux            log bytes sent (->) and received (<-) on SIO-B to stderr,
+                         with the emulated time in seconds
   -h, --help             this help";
 
 struct Args {
@@ -36,6 +38,7 @@ struct Args {
     dip_explicit: bool,
     turbo: bool,
     trace_io: bool,
+    trace_aux: bool,
     trace_cpu_from: Option<u16>,
     disk_b: Option<PathBuf>,
     disk_c: Option<PathBuf>,
@@ -52,6 +55,7 @@ fn parse_args() -> Result<Args, String> {
         dip_explicit: false,
         turbo: false,
         trace_io: false,
+        trace_aux: false,
         trace_cpu_from: None,
         disk_b: None,
         disk_c: None,
@@ -81,6 +85,7 @@ fn parse_args() -> Result<Args, String> {
             }
             "--turbo" => a.turbo = true,
             "--trace-io" => a.trace_io = true,
+            "--trace-aux" => a.trace_aux = true,
             "--trace-cpu-from" => {
                 a.trace_cpu_from = Some(hex(val()?)?.try_into().map_err(|_| "address must be 0000..FFFF")?)
             }
@@ -164,6 +169,7 @@ fn run() -> Result<(), String> {
     let config = Config {
         dip: args.dip,
         trace_io: args.trace_io,
+        trace_aux: args.trace_aux,
         trace_cpu_from: args.trace_cpu_from,
         fast_fdc: args.turbo,
         ..Config::default()

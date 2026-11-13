@@ -1,81 +1,203 @@
 # Bosman-8 — „sieć” po V.24: napędy D/E/F i tryb DEBUG (slave)
 
-Ustalone z kodu ROM (2026-11-13). Poprawia `bosman-8-rom/doc/wiki/disk_interlink.md`,
-który twierdzi, że strona serwera nie jest w ROM-ie — **jest**.
+Ustalone z kodu ROM i sprawdzone w emulatorze (2026-11-13, T4.4). Poprawia
+`bosman-8-rom/doc/wiki/disk_interlink.md`, który twierdzi, że strony serwera
+nie ma w ROM-ie — **jest** (0x1564…0x17E8).
+
+Pewność: 🟢 potwierdzone (kod jednoznaczny + działa między dwoma emulatorami),
+🟡 prawdopodobne (kod przeczytany, nieużywany przez mastera, nie testowane),
+❓ hipoteza.
 
 ## Idea
 
-Dwa Bosmany łączy się kablem między kanałami **SIO-B** (V.24, domyślnie
-~9600 bit/s async). Jeden komputer przechodzi w **tryb podporządkowany**
-(slave, „mikrosystem”) — to w praktyce zdalny monitor/debugger sterowany
-bajtowymi rozkazami. Drugi (master) widzi wtedy napędy slave'a jako swoje
-**D:, E:, F:**. Master nie wysyła „rozkazów dyskowych” — czyta tablice BIOS-u
-slave'a z jego pamięci i zdalnie wykonuje jego procedury BIOS (odczyt pamięci,
-zapis pamięci, wywołanie kodu). Ten sam mechanizm służy do zdalnego
-debugowania programu (`DEBUG PROG`).
+Dwa Bosmany łączy się kablem między kanałami **SIO-B** (V.24). Jeden przechodzi
+w **tryb podporządkowany** (slave, „mikrosystem”) — zdalny monitor sterowany
+bajtowymi rozkazami 50h–60h. Drugi (master) widzi wtedy napędy slave'a jako
+**D:, E:, F: = A:, B:, C: slave'a** 🟢. Master najpierw odczytuje z pamięci
+slave'a jego tablice (DPB, maska napędów), potem rozkazem 60h przełącza go w
+pętlę „serwera dysków” (rozkazy F0h–F3h), która woła BIOS slave'a
+(HOME/SELDSK/SETTRK/SETSEC/READ/WRITE) na sektorach 128-bajtowych.
 
-## Jak wejść w tryb slave  🟢
+## Jak tego użyć w emulatorze  🟢
 
-- Polecenie CCP **`DEBUG`** (wbudowane; tablica poleceń CCP 0x4432:
-  `DIR 446C, ERA 451A, TYPE 4568, SAVE 45A4, REN 45F5, USER 4662,
-  DEBUG 3F11, D 467A`). Handler 0x3F11 ustawia bit 0 `(IX-54h)` (0x8810),
-  wykonuje resztę linii (ładuje program, jeśli podano) i skacze do **0x1564**
-  (0x3F34 / 0x4032).
-- Komunikat „H-ERROR - mikrosystem (M) ignoruj (I)” przy starcie (brak
-  odpowiedzi kontrolera dyskietek) — wybór M → `JP 1564h` (0x0E2E). Czyli
-  Bosman bez działającej stacji może pracować jako „mikrosystem” sterowany
-  z drugiego komputera.
+Dwa procesy połączone przez TCP (serwer = slave, klient = master):
 
-## Slave — pętla rozkazów (0x1564)  🟡
-
-```
-1564  DI ; SP=FBC0 ; SIOB_INIT z konfiguracją F36A
-      zeruje F35F, FBF8 ; kopiuje stub rejestrów 1539.. → FBC0 (40 B), 3 B → F4CD
-158D  wyślij 80h, 88h            ; „jestem gotów” (rozkaz 5Dh też tu skacze)
-1597  pętla: odbierz bajt b; b-50h ∈ 0..10h → skok przez tablicę 15E3;
-      rozkazy parzyste (50,52,…) odbierają dodatkowo 1 bajt parametru (w C)
+```sh
+cp disks/narzedzia.img /tmp/serwer.img
+# serwer (slave): jego B: będzie u klienta jako E:
+bosman8 --term stdio --aux tcp-listen:127.0.0.1:4000 --disk-b /tmp/serwer.img
+#   A>DEBUG          ← polecenie CCP; ekran milknie, Bosman czeka na rozkazy
+# klient (master)
+bosman8 --term stdio --aux tcp:127.0.0.1:4000
+#   A>DIR E:
+#   Odwołanie do dysków D E F - dołącz (D)  rezygnuj (R)  ?   D
+#   E: PIP      COM : STAT     COM : ED       COM : SUBMIT   COM
+#   ...
+#   A>E:PIP A:=E:STAT.COM      ← odczyt (PIP też ładuje się z E:)
+#   A>STAT
+#   A: R/W, Space: 398k
+#   A>E:PIP E:KOPIA.COM=A:STAT.COM   ← zapis na dyskietkę serwera
 ```
 
-| Rozkaz | Adres | Przypuszczalne działanie |
-|---|---|---|
-| 50 | 1605 | odbiór bloku do pamięci (adres/licznik wcześniej ustawione) |
-| 51 | 1614 | porównanie bloków pamięci |
-| 52 | 1638 | wysłanie bloku z sumą kontrolną |
-| 53–55 | 164E, 1653, 1662 | ? |
-| 56 / 58 | 1667 / 1687 | ustaw młodszy / starszy bajt adresu (parametr) |
-| 57 | 166C | ? |
-| 59, 5A | 1694, 1698 | ? (5A — z parametrem, używany przez mastera) |
-| 5B | 16A1 | odczyt bajtu spod adresu (z przełączaniem banków, `F452`) i wysłanie |
-| 5C | 16AF | ? |
-| 5D | 158D | ponowne „hello” → 80h 88h |
-| 5E | 03DA | restart systemu (powrót do CCP) |
-| 5F | 16BD | ? |
-| 60 | 1724 | ? (master wysyła 60h 00h po połączeniu) |
-| — | 15BA | punkt wejścia po pułapce/breakpoincie: zapis wszystkich rejestrów do FBC0.., wysłanie 81h |
-| — | 1554 | przywrócenie rejestrów z FBC0.. i skok (uruchomienie kodu) |
+- Zamiast `--term stdio` może być terminal ANG (`--term tcp-listen:…` + `ang3001`).
+- **Nie używaj `--turbo`** po żadnej stronie: master ma programowe timeouty
+  (~0,1 s na bajt), a obie maszyny muszą iść w tym samym tempie czasu
+  emulowanego (czas rzeczywisty).
+- Zwolnienie łącza: odwołanie do napędu ≥ G: (np. `DIR G:`) → master wysyła
+  F0h, slave wraca do CCP (`A>`). Ponowne odwołanie do D/E/F na nowo zadaje
+  pytanie D/R — slave musi być wtedy znów w `DEBUG`.
+- Podgląd łącza: `--trace-aux` (na stderr, z czasem emulowanym w s):
+  `aux    9.043549 -> 56` (wysłane), `aux   10.061065 <- 56 AB 58 F2 5B`
+  (odebrane z linii w jednej porcji), `<- (Rx disabled, lost)` (bajty, które
+  przyszły, zanim ROM włączył odbiornik SIO-B — giną jak na prawdziwym SIO).
+- Test bez sieci: `crates/bosman8/tests/interlink.rs` — dwa rdzenie w jednym
+  procesie połączone `b8_link::pair()`, kwanty po 20 ms jak w binarce
+  (~5 s w buildzie testowym; `TRACE_AUX=1` wypisuje ruch).
 
-## Master — dostęp do D/E/F (0x0476)  🟡
+### Z prawdziwym Bosmanem  🟡 (nie testowane na sprzęcie)
 
-- `F267` = „trzeba (ponownie) połączyć”; **wartość początkowa 1Ah** (z obrazu
-  BIOS w ROM 0x2D67), więc pierwsze odwołanie do D/E/F zawsze uruchamia
-  połączenie; po udanym połączeniu = 0, po timeoucie znów 1Ah.
-- Połączenie: pytanie „Odwołanie do dysku w D E F - docelowy (D) rezygnuj (R)”,
-  `F268 |= C0h` (zajęte), init SIO-B, wysyła **5Dh**, czeka na **88h**,
-  potem czyta pamięć slave'a: DPB → `F2AB`, 60 bajtów → `F9A0`, maskę
-  napędów slave'a (`F370`) przesuniętą o 3 bity → bity 3–5 lokalnego `F370`
-  (D/E/F = napędy slave'a A/B/C), na koniec wysyła 60h 00h.
-- Wybór D–F używa tablicy DPH od `F4A0` (zamiast `F27B`).
-- Bajty idą przez `C_PUNCH` (0x1247 → SIO-B), odbiór `0x12E0`, timeout w `FA19`.
-- Błąd: „Brak komunikacji z drugim komputerem”; polecenie „Zwolnienie dysków
-  D E F” (narzędzia CCP) zwalnia łącze.
+Kabel V.24 (TxD/RxD skrzyżowane, masa) z SIO-B Bosmana do adaptera USB-RS232:
 
-## Stan w emulatorze
+```sh
+bosman8 --term stdio --aux serial:/dev/ttyUSB0@9600   # emulator = master, prawdziwy = DEBUG
+bosman8 --term stdio --aux serial:/dev/ttyUSB0@9600 --disk-b dysk.img   # albo odwrotnie
+```
 
-Dwa procesy `bosman8` z `--aux tcp-listen:…` / `--aux tcp:…`; na slave `DEBUG`.
-- ✅ Slave wchodzi w tryb rozkazów, master łączy się (pytanie D/R, brak
-  komunikatu o braku komunikacji).
-- ❌ `DIR E:` → „Brak pliku” (slave ma dyskietkę z 14 plikami w B:),
-  `DIR D:` → „brak napędu”. Do zbadania: semantyka pozostałych rozkazów,
-  czy master wykonuje BIOS slave'a, timing SIO-B / przełączanie banków
-  podczas zdalnego odczytu, ewentualne braki w emulacji (np. przerwania, NMI
-  slave'a przy operacjach dyskowych wykonywanych zdalnie).
+Uwaga: łącze **zaczyna na 9600 bit/s, a po rozkazie 60h obie strony
+przełączają się na szybszą prędkość**: 8253 licznik 2 = 13 → 6 (bajty
+`F363/F364` konfiguracji V.24 `F360..F364`, używanej po 60h przez obie strony); przy zegarze 2 MHz i
+×16 daje to 9615 → **20833 bit/s** (nominalnie pewnie „19200”, ale z błędem
++8,5% — poza tolerancją zwykłego UART-u ustawionego na 19200). Backend
+`serial:` ma stałą prędkość i nie śledzi zmian 8253, więc z prawdziwym
+Bosmanem zadziała tylko faza połączenia (pytanie D/R, odczyt DPB); dalej
+trzeba by przestawiać port hosta na 20833 bit/s (adaptery FTDI/CP210x
+przyjmują niestandardowe prędkości) w chwili, gdy emulowany SIO-B zmienia
+zegar — **niezaimplementowane** ❓. Między dwoma emulatorami (TCP, `pair`)
+prędkość linii nie ma znaczenia.
+
+## Wejście w tryb slave  🟢
+
+- Polecenie CCP **`DEBUG`** (tablica poleceń CCP 0x4432: `DIR 446C, ERA 451A,
+  TYPE 4568, SAVE 45A4, REN 45F5, USER 4662, DEBUG 3F11, D 467A`). Handler
+  0x3F11 ustawia bit 0 `(IX-54h)`, ładuje program podany w reszcie linii (do
+  zdalnego debugowania) i skacze do **0x1564**.
+- „H-ERROR - mikrosystem (M) ignoruj (I)” przy starcie (brak odpowiedzi
+  kontrolera dyskietek) — M → `JP 1564h` (0x0E2E): Bosman bez stacji może być
+  „mikrosystemem” sterowanym z drugiego komputera.
+
+```
+1564  DI ; SP=FBC0 ; SIOB_INIT(F36A) (9600 bit/s) ; F35F=0, FBF8=0
+      zeruje FBC0..FBD1 (zapisane rejestry), kopiuje 1539..1560 → FBD2 (stub
+      „odtwórz rejestry i skocz”), F4CD := JP 15BA (pułapka RST 30h → 15BA)
+158D  wyślij C, 88h      ; „gotów”: przy wejściu C=00 → 00 88; po 5Dh C=01 → 01 88
+                         ; (ROM ładuje 80h do A, ale procedura 1276 wysyła C)
+1597  pętla: b = odbierz; b-50h ∈ 0..10h → skok przez tablicę 15E3, inne ignoruje;
+      rozkazy parzyste (50,52,…,60) odbierają 1 bajt parametru (→ C)
+```
+
+## Rozkazy slave'a (tablica 0x15E3)
+
+Rejestry adresowe slave'a: **A1 = FBFA** (bieżący), **A2 = FBFC**, **A3 = FBFE**.
+Rozkazy 56h/58h działają jak stos: nowy bajt wchodzi do A1, stary A1 → A2,
+stary A2 → A3 (osobno młodsze i starsze bajty). Odczyty pamięci idą przez
+`F452` (gdy `FBF8`=0 — zawsze w trybie slave — włącza RAM zamiast ROM-u w
+0000–7FFF). „Suma” = suma bajtów mod 256.
+
+| Rozkaz | Adres | Działanie | Odpowiedź | Pewność |
+|---|---|---|---|---|
+| 50 lo | 1605 | `50 lo hi nlo nhi dane×n`: zapis bloku pod adres hi:lo | suma (od `lo` do końca danych) | 🟡 |
+| 51 | 1614 | porównanie [A3..A2] z blokiem od A1 | 2 B: pozostały licznik (0000 = zgodne; FFFF gdy A2<A3) | 🟡 |
+| 52 lo | 1638 | `52 lo hi nlo nhi`: odczyt bloku | n bajtów + suma (od `lo`) | 🟡 |
+| 53 | 164E | starszy bajt sumy 16-bit z ostatniego 57h (`FBF4`) | 1 B | 🟡 |
+| 54 x | 1653 | wypełnienie [A2..A1] bajtem x | 55h | 🟡 |
+| 55 | 1662 | identyfikacja: bajt spod `F4A4` (80h), A1 := F4A5 (dalej `60 FB "BOSMAN-8" 00`, czytać 5Bh) | 1 B | 🟡 |
+| 56 x | 1667 | A1.lo := x (przesuwa A1→A2→A3) | — | 🟢 |
+| 57 | 166C | suma 16-bit [A2..A1] | młodszy bajt (starszy → 53h) | 🟡 |
+| 58 x | 1687 | A1.hi := x (przesuwa) | — | 🟢 |
+| 59 | 1694 | GO: odtwarza rejestry z FBC0.. i skacze (`F4BE`: RAM, `JP FBD4`) | po pułapce 81h (zob. 15BA) | 🟡 |
+| 5A x | 1698 | (A1) := x, A1++ | — | 🟡 |
+| 5B | 16A1 | wyślij (A1), A1++ | 1 B | 🟢 |
+| 5C x | 16AF | CALL A1 z A=x (RAM włączony, `F4B0`) | A po powrocie | 🟡 |
+| 5D | 158D | „hello” | `01 88` | 🟢 |
+| 5E | 03DA | koniec trybu slave, gorący start → CCP | — | 🟡 |
+| 5F | 16BD | przesunięcie bloku [A3..A2] → A1 (z obsługą nakładania) | 55h | 🟡 |
+| 60 x | 1724 | przejście w **serwer dysków** (x ignorowany), patrz niżej | — | 🟢 |
+| — | 15BA | wejście z pułapki/breakpointu (`RST 30h` → F4C3): zapis rejestrów do FBC0.., wysłanie 81h, powrót do pętli | 81h | 🟡 |
+
+## Serwer dysków (0x1724)  🟢
+
+Wejście: `F363`=06 (8253 licznik 2 = 6 → **19200 bit/s**), `F35F`=0 (następne
+odebranie ponownie inicjuje SIO-B), DMA := F100. Pętla: odbierz bajt; < F0h —
+ignoruj.
+
+| Rozkaz | Bajty (master → slave) | Działanie slave'a | Odpowiedź |
+|---|---|---|---|
+| F0 | `F0 xx` | `F363`=0D (9600), odbiera xx, gorący start → CCP | — |
+| F1 | `F1 h t s d k` | h≠0 → BIOS HOME; SETTRK(t); SETSEC(s); SELDSK(d) (d = 0..2 = A/B/C slave'a); k = −(F1+h+t+s+d) | suma kontrolna (00 = OK) albo 5Ah, gdy SELDSK zwróci 0 |
+| F2 | `F2 k` (k = −F2 = 0Eh) | potwierdza, potem BIOS READ do F100 | `00`, potem 128 B + (−suma) |
+| F3 | `F3 w dane×128 k` (k = −suma od F3) | gdy suma OK: BIOS WRITE(C=w) z F100 | 00 = zapisane; ≠0 = zła suma |
+
+Master po złej sumie powtarza (nagłówek F1 albo cały odczyt/zapis). Sektory są
+logiczne, 128-bajtowe — deblokowanie robi BIOS slave'a, więc działa każdy
+napęd slave'a, w tym RAM-dysk.
+
+## Master — dostęp do D/E/F (SELDSK 0x0476)  🟢
+
+- C (napęd) ≥ 6 → **zwolnienie** (0x0563): wyślij F0h, `F363`=0D, 3 ms, wyślij
+  00, potem jak błąd: `F268 &= 3Fh`, `F370 &= C7h`, `F267`=1Ah, wynik 0.
+- C < 3 → zwykły SELDSK lokalny. C = 3..5 przy `F267`≠0 (rozłączony; wartość
+  początkowa 1Ah z obrazu BIOS-u) → **połączenie**:
+  1. pytanie „Odwołanie do dysków D E F - dołącz (D) rezygnuj (R)” (R → wynik 0),
+     `F268 |= C0h`;
+  2. `F35F`=0, `F363`=0D (9600), inicjalizacja SIO-B (`SIOB_INIT` 0x1487), `F267`=0,
+     timeout `FA19`=1000h;
+  3. wysyła **5D** i czyta bajty aż do **88h**;
+  4. `56 AB 58 F2`, 60× `5B` → DPB slave'a A/B/C (`F2AB`, po 20 B) do lokalnego
+     `F9A0`/`F9B4`/`F9C8`;
+  5. `56 70 58 F3`, `5B` → maska napędów slave'a `F370`; `F370 |= maska<<3`
+     (bity 3–5 = D/E/F);
+  6. gdy był timeout (`F267`≠0) → „Brak komunikacji z drugim komputerem”;
+  7. wysyła **60 00**, ustawia `F363`=06 (19200), `F35F`=0.
+- Wybór: bit C maski `F370` (brak → „brak napędu”), DPH z tablicy `F4A0+16·C`
+  (`F4D0`/`F4E0`/`F4F0`, DPB → `F9A0`/`F9B4`/`F9C8`).
+- READ (0x064B): nagłówek F1 (0x06AA: `F438` = flaga HOME, `F34E` ścieżka,
+  `F350` sektor, `F34D`−3 napęd), potem F2 i 128 B do DMA `F351` + suma.
+  WRITE (0x067C): nagłówek F1, potem F3. HOME (0x06D4) tylko ustawia `F438`.
+- Wysyłanie: 0x0637 (`C_PUNCH` 0x1247 → 0x1276: czeka na RR1 „all sent”, `OUT 81h`;
+  nic nie wysyła, gdy `F267`≠0); odbiór: 0x060C (odpytuje 0x1349, licznik `FA19`
+  — 1000h ≈ 0,1 s, FF00h ≈ 7 s przy blokach/zapisie; po timeoucie `F267`=1Ah).
+- Odpowiedzi po timeoucie są traktowane jak OK (dane śmieciowe), ale `F267`≠0
+  wymusza ponowne połączenie przy następnym SELDSK.
+
+## Co było nie tak w emulatorze (T4.4)  🟢
+
+1. **Utracony bajt po przełączeniu na 19200.** `SIOB_INIT` (0x1487) programuje
+   licznik 8253, czyta rejestr danych, czeka 2 ms i czyta go znowu — co przyjdzie
+   w tym oknie, ginie. Na prawdziwej linii pierwszy bajt mastera po rozkazie
+   60h (F1) dociera ~0,4 ms *po* drugim odczycie slave'a (master też robi 2 ms
+   opóźnienia po zmianie prędkości). W emulatorze bajty z TCP (i z kwantów
+   20 ms obu emulatorów) przychodzą paczkami: `60 00 F1` w jednej porcji, więc
+   F1 trafiał do odbiornika w trakcie okna 2 ms i był wyrzucany; slave czekał na
+   F1, master na odpowiedź → timeout, śmieciowe dane, „Brak pliku”.
+   Naprawa: po zapisie licznika 8253 taktującego kanał (port 85h → SIO-A,
+   86h → SIO-B) odbiornik przez 3 ms nie pobiera bajtów z kolejki hosta
+   (`SioChannel::hold_rx`, `RX_RESYNC_CYCLES` w `crates/bosman8/src/lib.rs`).
+2. **3-bajtowa kolejka odbiorcza SIO** (`b8-chips`): wcześniej bajty czekały w
+   nieskończonej kolejce hosta za 1-bajtowym rejestrem, więc „stare” bajty
+   (np. powitanie `00 88` slave'a sprzed połączenia) przeżywały odczyty
+   czyszczące `SIOB_INIT` i przesuwały protokół o 2 bajty („E: brak napędu”).
+   Teraz jak w Z80-SIO: do 3 bajtów w FIFO układu (czyszczone przez odczyty),
+   reszta czeka w kolejce hosta (bez przepełnień — wygoda dla terminala).
+3. **SIO-B gubi bajty przy wyłączonym odbiorniku** (WR3 bit 0 = 0), jak
+   prawdziwy układ — wcześniej czekały do włączenia. Kanał A (terminal) nadal je
+   zachowuje.
+
+Bez poprawki 1 test `interlink` daje dokładnie objaw z ręcznej próby
+(„Brak pliku”).
+
+## Otwarte
+
+- Prędkość 9600 → 19200 przy prawdziwym sprzęcie przez `serial:` (wyżej).
+- Rozkazy 50–5F poza 56/58/5B/5D nie są używane przez mastera D/E/F — opis z
+  kodu, nietestowany (zdalny debugger — klient po stronie PC nie istnieje).
+- Wyświetlanie: w trybie slave ekran serwera stoi (brak komunikatów) — tak ma ROM.

@@ -29,6 +29,17 @@ pub const BANKS: usize = 8;
 const BANK_SIZE: usize = 0x8000;
 /// How often (in CPU cycles) the serial endpoints are polled.
 const PUMP_CYCLES: u64 = 1000;
+/// Receiver hold-off after the baud-rate clock of a SIO channel (8253
+/// counter 1 = A, 2 = B) is written, in CPU cycles (3 ms). The ROM's line
+/// (re)initialisation `SIOB_INIT` (0x1487) programs the counter, reads the
+/// data register, waits 2 ms and reads it again — anything received in that
+/// window is thrown away. On a real line the remote side cannot send at the
+/// new speed before it has switched too (it runs the same routine, including
+/// the 2 ms delay), but bytes arriving through TCP or a USB adapter lose their
+/// spacing and may already be queued; without the hold-off the D/E/F link
+/// loses the first byte after the switch to 19200 bit/s (rozkaz 60h).
+/// See doc/bosman8-interlink.md.
+const RX_RESYNC_CYCLES: u32 = CPU_HZ / 1000 * 3;
 /// Cap of the trace log buffer (lines) between two `take_log` calls.
 const LOG_CAP: usize = 100_000;
 
@@ -62,6 +73,8 @@ pub struct Config {
     pub fast_fdc: bool,
     /// Report the printer as ready (bit 7 of port 0x98).
     pub printer_ready: bool,
+    /// Log bytes sent and received on SIO-B (aux) with the emulated time.
+    pub trace_aux: bool,
 }
 
 impl Default for Config {
@@ -74,6 +87,7 @@ impl Default for Config {
             trace_cpu_limit: 200_000,
             fast_fdc: false,
             printer_ready: true,
+            trace_aux: false,
         }
     }
 }
@@ -274,6 +288,11 @@ impl Machine for Bus {
             0x84..=0x87 => {
                 self.pit.write(port & 3, value);
                 self.timing_dirty = true;
+                match port {
+                    0x85 => self.sio.a.hold_rx(RX_RESYNC_CYCLES),
+                    0x86 => self.sio.b.hold_rx(RX_RESYNC_CYCLES),
+                    _ => {}
+                }
                 "8253".into()
             }
             0x88..=0x8B => {
@@ -317,6 +336,7 @@ pub struct Bosman8 {
     trace_cpu_from: Option<u16>,
     trace_cpu_left: u64,
     tracing_cpu: bool,
+    trace_aux: bool,
 }
 
 impl Bosman8 {
@@ -359,6 +379,7 @@ impl Bosman8 {
             trace_cpu_from: config.trace_cpu_from,
             trace_cpu_left: config.trace_cpu_limit,
             tracing_cpu: false,
+            trace_aux: config.trace_aux,
         }
     }
 
@@ -463,20 +484,53 @@ impl Bosman8 {
     fn pump(&mut self) {
         let chans: [(&mut SioChannel, &mut Box<dyn Endpoint>); 2] =
             [(&mut self.bus.sio.a, &mut self.term), (&mut self.bus.sio.b, &mut self.aux)];
+        let mut sent = Vec::new();
+        let mut received = Vec::new();
+        let mut dropped = Vec::new();
         for (i, (ch, ep)) in chans.into_iter().enumerate() {
+            let aux = i == 1 && self.trace_aux;
             while let Some(b) = ch.take_tx() {
                 ep.write(b);
+                if aux {
+                    sent.push(b);
+                }
             }
             let brk = ch.break_active();
             if brk && !self.tx_break[i] {
                 ep.send_break();
             }
             self.tx_break[i] = brk;
+            // SIO-B: what arrives while the receiver is disabled (before the ROM
+            // opened the line) is lost, as on the real chip — otherwise e.g. the
+            // slave's greeting sent when it entered DEBUG would be read later as
+            // a reply and shift the D/E/F protocol. (The terminal channel keeps
+            // such bytes: type-ahead during boot is harmless and convenient.)
+            if i == 1 && !ch.rx_enabled() {
+                while let Some(b) = ep.read() {
+                    if aux {
+                        dropped.push(b);
+                    }
+                }
+            }
             // Don't let the host queue grow without bound if the guest is not reading.
             while ch.rx_pending() < 4096 {
                 match ep.read() {
-                    Some(b) => ch.push_rx(b),
+                    Some(b) => {
+                        ch.push_rx(b);
+                        if aux {
+                            received.push(b);
+                        }
+                    }
                     None => break,
+                }
+            }
+        }
+        if self.trace_aux {
+            let t = self.cycles as f64 / CPU_HZ as f64;
+            for (dir, bytes) in [("->", sent), ("<-", received), ("<- (Rx disabled, lost)", dropped)] {
+                if !bytes.is_empty() {
+                    let hex: Vec<String> = bytes.iter().map(|b| format!("{b:02X}")).collect();
+                    self.bus.log(format!("aux {t:11.6} {dir} {}", hex.join(" ")));
                 }
             }
         }
