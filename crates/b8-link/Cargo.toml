@@ -6,3 +6,6 @@ license.workspace = true
 
 [dependencies]
 serialport = { version = "4", default-features = false }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
