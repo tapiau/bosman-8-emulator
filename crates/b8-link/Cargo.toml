@@ -1,0 +1,8 @@
+[package]
+name = "b8-link"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serialport = { version = "4", default-features = false }

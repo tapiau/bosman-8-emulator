@@ -1,0 +1,11 @@
+[package]
+name = "ang3001"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+iz80.workspace = true
+b8-link.workspace = true
+b8-chips.workspace = true
+minifb = "0.28"

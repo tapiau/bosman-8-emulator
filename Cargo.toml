@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["crates/b8-link", "crates/b8-chips", "crates/bosman8", "crates/ang3001"]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "MIT"
+
+[workspace.dependencies]
+iz80 = "0.5.1"
+b8-link = { path = "crates/b8-link" }
+b8-chips = { path = "crates/b8-chips" }
+
+[profile.dev]
+opt-level = 1
