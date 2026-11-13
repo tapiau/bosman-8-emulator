@@ -9,9 +9,9 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
 - ✅ Wybór technologii: Rust + iz80 (zob. [ARCHITECTURE.md](ARCHITECTURE.md))
 
 ## Faza 1 — szkielet
-- ⏳ T1.1 Workspace Cargo, crate'y `b8-link`, `b8-chips`, `bosman8`, `ang3001`
-- ⏳ T1.2 `b8-link`: trait endpointu + backendy null / TCP listen / TCP connect / stdio / serial hosta
-- ⏳ T1.3 `b8-chips`: 74LS259, 8253, Z80-SIO (tryb bajtowy), 8251
+- ✅ T1.1 Workspace Cargo, crate'y `b8-link`, `b8-chips`, `bosman8`, `ang3001`
+- 🔄 T1.2 `b8-link`: trait endpointu + backendy null / TCP listen / TCP connect / stdio / serial hosta
+- 🔄 T1.3 `b8-chips`: 74LS259, 8253, Z80-SIO (tryb bajtowy), 8251
 
 ## Faza 2 — Bosman-8
 - ⏳ T2.1 Pamięć: ROM 32 KB / 8 banków RAM 32 KB w dolnej połowie, wspólne górne 32 KB
@@ -40,3 +40,5 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
 
 ## Dziennik
 (uzupełniany na bieżąco — najnowsze na dole)
+- 2026-11-13: rozpoznanie sprzętu z kodu ROM; dokumentacja w `doc/`; szkielet workspace z interfejsami
+  (`b8-link`, `b8-chips`). T1.2 i T1.3 zlecone równolegle subagentom; T2/T3 ruszą po nich.
