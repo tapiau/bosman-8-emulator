@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serialport::{DataBits, FlowControl, Parity, StopBits};
 
@@ -14,8 +14,15 @@ use crate::{Endpoint, LineParams, LineStatus};
 const READ_TIMEOUT: Duration = Duration::from_millis(20);
 const BREAK_LENGTH: Duration = Duration::from_millis(250);
 
+/// How late a timed byte may be before the time base is re-anchored.
+const LATE_RESYNC: Duration = Duration::from_millis(5);
+/// Bytes scheduled further ahead than this are sent at once (re-anchored).
+const MAX_AHEAD: Duration = Duration::from_millis(200);
+
 enum TxMsg {
     Byte(u8),
+    /// Byte with the emulated time (seconds) at which it left the emulated chip.
+    Timed(u8, f64),
     Break,
     Params(LineParams),
 }
@@ -101,12 +108,53 @@ impl SerialEndpoint {
         let ok_w = ok.clone();
         thread::Builder::new().name("serial-writer".into()).spawn(move || {
             let mut out = Vec::with_capacity(256);
-            while let Ok(msg) = tx_rx.recv() {
+            // Mapping of emulated time to wall time for timed bytes.
+            let mut anchor: Option<(Instant, f64)> = None;
+            let mut pending: Option<TxMsg> = None;
+            while let Some(msg) = pending.take().or_else(|| tx_rx.recv().ok()) {
+                // Timed bytes: wait until the wall-clock moment corresponding to
+                // their emulated time, then send them together with the
+                // following bytes that are due at (almost) the same moment.
+                if let TxMsg::Timed(b, t) = msg {
+                    let now = Instant::now();
+                    let target = match anchor {
+                        Some((w, e)) if t >= e => w + Duration::from_secs_f64(t - e),
+                        _ => now,
+                    };
+                    let target = if target + LATE_RESYNC < now || target > now + MAX_AHEAD {
+                        anchor = Some((now, t));
+                        now
+                    } else {
+                        if anchor.is_none() {
+                            anchor = Some((now, t));
+                        }
+                        target
+                    };
+                    if target > now {
+                        thread::sleep(target - now);
+                    }
+                    out.clear();
+                    out.push(b);
+                    for m in tx_rx.try_iter() {
+                        match m {
+                            TxMsg::Timed(b2, t2) if t2 - t < 0.0002 => out.push(b2),
+                            TxMsg::Byte(b2) => out.push(b2),
+                            other => {
+                                pending = Some(other);
+                                break;
+                            }
+                        }
+                    }
+                    if writer.write_all(&out).is_err() || writer.flush().is_err() {
+                        ok_w.store(false, Ordering::SeqCst);
+                    }
+                    continue;
+                }
                 let mut pending_break = false;
                 let mut pending_params = None;
                 out.clear();
                 match msg {
-                    TxMsg::Byte(b) => out.push(b),
+                    TxMsg::Byte(b) | TxMsg::Timed(b, _) => out.push(b),
                     TxMsg::Break => pending_break = true,
                     TxMsg::Params(p) => pending_params = Some(p),
                 }
@@ -114,6 +162,10 @@ impl SerialEndpoint {
                     for m in tx_rx.try_iter() {
                         match m {
                             TxMsg::Byte(b) => out.push(b),
+                            m @ TxMsg::Timed(..) => {
+                                pending = Some(m);
+                                break;
+                            }
                             TxMsg::Break => {
                                 pending_break = true;
                                 break;
@@ -164,6 +216,9 @@ impl Drop for SerialEndpoint {
 impl Endpoint for SerialEndpoint {
     fn write(&mut self, byte: u8) {
         let _ = self.tx.send(TxMsg::Byte(byte));
+    }
+    fn write_at(&mut self, byte: u8, t: f64) {
+        let _ = self.tx.send(TxMsg::Timed(byte, t));
     }
     fn read(&mut self) -> Option<u8> {
         self.rx.try_recv().ok()

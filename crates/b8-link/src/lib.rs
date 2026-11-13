@@ -100,6 +100,15 @@ impl std::fmt::Display for LineParams {
 pub trait Endpoint: Send {
     /// Queue one byte for transmission. Never blocks.
     fn write(&mut self, byte: u8);
+    /// Queue one byte that the emulated chip finished transmitting at emulated
+    /// time `t` (seconds, monotonic). Endpoints driving real hardware (host
+    /// serial port) use it to keep the original spacing of bytes on the wire —
+    /// the emulator runs in time slices, so without it bytes would leave in
+    /// bursts. The default just calls [`Endpoint::write`]. Never blocks.
+    fn write_at(&mut self, byte: u8, t: f64) {
+        let _ = t;
+        self.write(byte);
+    }
     /// Take the next received byte, if any. Never blocks.
     fn read(&mut self) -> Option<u8>;
     /// Send a BREAK condition (best effort; may be a no-op).

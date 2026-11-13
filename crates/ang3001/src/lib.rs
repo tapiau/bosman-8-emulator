@@ -528,10 +528,11 @@ impl Ang3001 {
                 self.line_applied = Some(p);
             }
         }
+        let now = self.bus.now as f64 / self.bus.cpu_hz as f64;
         let usart = &mut self.bus.usart;
         while let Some(b) = usart.take_tx() {
             if let Some(l) = self.link.as_mut() {
-                l.write(b);
+                l.write_at(b, now);
             }
         }
         let brk = usart.break_active();

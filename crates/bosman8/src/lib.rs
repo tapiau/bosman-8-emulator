@@ -530,20 +530,23 @@ impl Bosman8 {
         let mut dropped = Vec::new();
         for (i, (ch, ep)) in chans.into_iter().enumerate() {
             let aux = i == 1 && self.trace_aux;
+            // Bytes carry their emulated time so a host serial port can keep
+            // their spacing on the wire (the emulator runs in time slices).
+            let now = self.cycles as f64 / CPU_HZ as f64;
             while let Some(b) = ch.take_tx() {
-                ep.write(b);
+                ep.write_at(b, now);
                 if aux {
                     sent.push(b);
                 }
             }
+            // Speed / format change after the bytes sent at the old setting.
             let line = lines[i];
             if self.follow_line_params && line.is_some() && line != self.line_applied[i] {
                 let p = line.expect("checked");
                 ep.set_line_params(p);
                 self.line_applied[i] = line;
                 if aux || (i == 0 && self.trace_aux) {
-                    let t = self.cycles as f64 / CPU_HZ as f64;
-                    line_log.push(format!("{} {t:11.6} line {p}", if i == 0 { "term" } else { "aux" }));
+                    line_log.push(format!("{} {now:11.6} line {p}", if i == 0 { "term" } else { "aux" }));
                 }
             }
             let brk = ch.break_active();
