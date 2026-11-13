@@ -17,9 +17,16 @@
 //! | OUT 0x80       | scroll register: memory line shown first                 |
 //! | 0x88-0x8B      | 8253: ch0 beep length (clocked by ch1 OUT), ch1 tone, ch2 UART clock |
 //! | 0x8C IN        | keyboard ASCII code (clears the strobe)                   |
-//! | 0x8D IN        | bit7 1 = normal boot, bit6 0 = CAPS, bit5 0 = BREAK, bit4 1 (idle 0xF0) |
+//! | 0x8D IN        | bit7 1 = normal boot, bit6 0 = CAPS, bit5 0 = BREAK, bit4 0 = STOP (paging); idle 0xF0 |
 //! | 0x8E IN        | bit5 key strobe, bit2 frame clock (toggles every frame), bit0 1 = no key held |
 //! | 0x90 / 0x91    | 8251 data / control+status                                |
+//!
+//! Operating modes of the ROM ([`TermMode`]): normal DUPLEX operation, the
+//! BREAK prompt, LOCAL mode and the STOP (page full) wait. The ROM keeps no
+//! RAM flag for them - each is a separate polling loop - so the core tracks
+//! the mode by watching the PC enter those loops. [`Ang3001::set_local`]
+//! performs the BREAK / ESC key sequence that switches LOCAL on or off, the
+//! way a user would.
 
 use std::collections::VecDeque;
 
@@ -44,6 +51,45 @@ pub const TEXT_LINE0: usize = 16;
 pub const FONT_BASE: usize = 0x3600;
 /// Address of the ROM main loop; reaching it means the boot sequence is done.
 pub const MAIN_LOOP_ADDR: u16 = 0x04BD;
+/// Top of the BREAK prompt loop ("BREAK - powtórz   LOCAL - ESC").
+pub const BREAK_PROMPT_ADDR: u16 = 0x0533;
+/// Top of the LOCAL mode loop (keys go straight to the screen).
+pub const LOCAL_LOOP_ADDR: u16 = 0x0578;
+/// Top of the STOP wait loop in `LF_HANDLER` (page full, "STOP" shown).
+pub const STOP_LOOP_ADDR: u16 = 0x0A23;
+
+/// What the ROM is doing, derived from which of its loops the CPU is in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TermMode {
+    /// Booting, or the main loop (DUPLEX: keys to the line, line to the screen).
+    #[default]
+    Normal,
+    /// BREAK was pressed: "BREAK - powtórz   LOCAL - ESC" in the message band.
+    BreakPrompt,
+    /// LOCAL mode: keys go to the screen, the line is ignored.
+    Local,
+    /// Paging is on and a screen full of lines was shown: "STOP" in the
+    /// message band, waiting for a key (or STOP released, or BREAK).
+    Stopped,
+}
+
+/// Emulated time the automatic BREAK press of [`Ang3001::set_local`] lasts
+/// (the ROM samples the key at 25 Hz).
+const AUTO_BREAK_MS: u64 = 100;
+/// Give up an automatic key sequence after this long.
+const AUTO_TIMEOUT_MS: u64 = 2000;
+
+/// Steps of the automatic LOCAL on/off key sequence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AutoSeq {
+    Idle,
+    /// BREAK held until `until`; then wait for `next`.
+    BreakDown { until: u64, enter: bool },
+    /// Waiting for the BREAK prompt to appear, then ESC is typed.
+    WaitPrompt { deadline: u64 },
+    /// Waiting for the mode to become `want`.
+    WaitMode { want: TermMode, deadline: u64 },
+}
 
 /// Default display line offset: the picture starts at the memory line held
 /// in the scroll register (simplest hardware). The ROM treats the 16 lines
@@ -142,7 +188,9 @@ struct Bus {
     key_strobe: bool,
     key_held: bool,
     break_held: bool,
+    break_auto: bool,
     caps: bool,
+    stop: bool,
     // time
     now: u64,
     frame_cycles: u64,
@@ -229,12 +277,15 @@ impl Machine for Bus {
                 k
             }
             0x8D => {
-                let mut v = 0x80 | 0x10;
+                let mut v = 0x80;
                 if !self.caps {
                     v |= 0x40;
                 }
-                if !self.break_held {
+                if !(self.break_held || self.break_auto) {
                     v |= 0x20;
+                }
+                if !self.stop {
+                    v |= 0x10;
                 }
                 v
             }
@@ -299,6 +350,8 @@ pub struct Ang3001 {
     /// Bytes injected by the host, delivered to the 8251 after boot.
     inject: VecDeque<u8>,
     booted: bool,
+    mode: TermMode,
+    auto: AutoSeq,
     break_sent: bool,
     break_count: u64,
     since_pump: u32,
@@ -325,7 +378,9 @@ impl Ang3001 {
             key_strobe: false,
             key_held: false,
             break_held: false,
+            break_auto: false,
             caps: false,
+            stop: false,
             now: 0,
             frame_cycles: (cfg.cpu_hz / cfg.frame_hz.max(1)).max(1) as u64,
             char_cycles_fixed: cfg.char_cycles,
@@ -343,6 +398,8 @@ impl Ang3001 {
             link: None,
             inject: VecDeque::new(),
             booted: false,
+            mode: TermMode::Normal,
+            auto: AutoSeq::Idle,
             break_sent: false,
             break_count: 0,
             since_pump: 0,
@@ -367,7 +424,10 @@ impl Ang3001 {
         self.link.as_deref()
     }
 
-    /// Hardware reset (F11 in the GUI). RAM keeps its contents.
+    /// Hardware reset (F11 / RESET button in the GUI): CPU, 8253, 8251,
+    /// ROM mapping, scroll register and the key queue. RAM keeps its
+    /// contents (the ROM tests and clears what it uses anyway); latching
+    /// keys (CAPS, STOP) keep their state.
     pub fn reset(&mut self) {
         self.cpu.signal_reset();
         self.bus.rom_enabled = true;
@@ -378,6 +438,9 @@ impl Ang3001 {
         self.bus.keys.clear();
         self.bus.timing_dirty = true;
         self.booted = false;
+        self.mode = TermMode::Normal;
+        self.auto = AutoSeq::Idle;
+        self.bus.break_auto = false;
         self.break_sent = false;
     }
 
@@ -388,8 +451,15 @@ impl Ang3001 {
         while self.bus.now < end {
             let pc = self.cpu.immutable_registers().pc();
             self.bus.pc = pc;
-            if !self.booted && pc == MAIN_LOOP_ADDR {
-                self.booted = true;
+            match pc {
+                MAIN_LOOP_ADDR => {
+                    self.booted = true;
+                    self.mode = TermMode::Normal;
+                }
+                BREAK_PROMPT_ADDR => self.mode = TermMode::BreakPrompt,
+                LOCAL_LOOP_ADDR => self.mode = TermMode::Local,
+                STOP_LOOP_ADDR => self.mode = TermMode::Stopped,
+                _ => {}
             }
             let before = self.cpu.cycle_count();
             self.cpu.execute_instruction(&mut self.bus);
@@ -413,6 +483,9 @@ impl Ang3001 {
 
     fn pump_link(&mut self) {
         self.since_pump = 0;
+        if self.auto != AutoSeq::Idle {
+            self.step_auto();
+        }
         let usart = &mut self.bus.usart;
         while let Some(b) = usart.take_tx() {
             if let Some(l) = self.link.as_mut() {
@@ -480,6 +553,102 @@ impl Ang3001 {
     /// BREAK key held (port 0x8D bit 5 = 0).
     pub fn set_break(&mut self, held: bool) {
         self.bus.break_held = held;
+    }
+
+    /// STOP (page mode) latch, port 0x8D bit 4 = 0 when on. With it on the
+    /// ROM counts lines scrolled off the bottom; after a screen full (24
+    /// lines; the first time right at the next scroll) it shows "STOP" (and
+    /// the scroll speed choice "speed 1 2") in the message band and waits:
+    /// any key shows the next page (the key is swallowed; `1` / `2` select
+    /// fast / smooth scrolling), switching STOP off or pressing BREAK
+    /// resumes without paging. Received data waits meanwhile.
+    pub fn set_stop(&mut self, on: bool) {
+        self.bus.stop = on;
+    }
+
+    pub fn stop(&self) -> bool {
+        self.bus.stop
+    }
+
+    /// Current ROM operating mode (see [`TermMode`]).
+    pub fn mode(&self) -> TermMode {
+        self.mode
+    }
+
+    /// True while the ROM is in LOCAL mode.
+    pub fn is_local(&self) -> bool {
+        self.mode == TermMode::Local
+    }
+
+    /// True while the ROM waits in the STOP (page full) loop.
+    pub fn is_stopped(&self) -> bool {
+        self.mode == TermMode::Stopped
+    }
+
+    /// Switch LOCAL mode on or off the way a user would on the real
+    /// keyboard, over the next few hundred ms of emulated time:
+    /// on = BREAK (press + release) then ESC in the BREAK prompt;
+    /// off = BREAK (press + release) in LOCAL mode, which returns to the
+    /// main loop (DUPLEX). Does nothing if the mode already matches or a
+    /// sequence is still running. Returns whether a sequence was started.
+    pub fn set_local(&mut self, on: bool) -> bool {
+        if self.auto != AutoSeq::Idle || !self.booted || self.is_local() == on {
+            return false;
+        }
+        if on && self.mode == TermMode::BreakPrompt {
+            // the prompt is already up (BREAK pressed by hand): just answer it
+            self.key_press(0x1B);
+            let deadline = self.bus.now + self.ms(AUTO_TIMEOUT_MS);
+            self.auto = AutoSeq::WaitMode { want: TermMode::Local, deadline };
+            return true;
+        }
+        let until = self.bus.now + self.ms(AUTO_BREAK_MS);
+        self.auto = AutoSeq::BreakDown { until, enter: on };
+        self.bus.break_auto = true;
+        true
+    }
+
+    /// True while a [`set_local`](Self::set_local) key sequence is running.
+    pub fn local_switching(&self) -> bool {
+        self.auto != AutoSeq::Idle
+    }
+
+    fn ms(&self, ms: u64) -> u64 {
+        self.cfg.cpu_hz as u64 * ms / 1000
+    }
+
+    fn step_auto(&mut self) {
+        let now = self.bus.now;
+        self.auto = match self.auto {
+            AutoSeq::Idle => AutoSeq::Idle,
+            AutoSeq::BreakDown { until, enter } if now >= until => {
+                self.bus.break_auto = false;
+                let deadline = now + self.ms(AUTO_TIMEOUT_MS);
+                if enter {
+                    AutoSeq::WaitPrompt { deadline }
+                } else {
+                    AutoSeq::WaitMode { want: TermMode::Normal, deadline }
+                }
+            }
+            s @ AutoSeq::BreakDown { .. } => s,
+            AutoSeq::WaitPrompt { deadline } => {
+                if self.mode == TermMode::BreakPrompt {
+                    self.key_press(0x1B);
+                    AutoSeq::WaitMode { want: TermMode::Local, deadline: now + self.ms(AUTO_TIMEOUT_MS) }
+                } else if now >= deadline {
+                    AutoSeq::Idle
+                } else {
+                    self.auto
+                }
+            }
+            AutoSeq::WaitMode { want, deadline } => {
+                if self.mode == want || now >= deadline {
+                    AutoSeq::Idle
+                } else {
+                    self.auto
+                }
+            }
+        };
     }
 
     /// CAPS lock state (port 0x8D bit 6 = 0 when active; the ROM then swaps
@@ -746,5 +915,10 @@ mod tests {
         m.set_caps(true);
         m.set_break(true);
         assert_eq!(m.bus.port_in(0x8D), 0x90);
+        m.set_stop(true);
+        assert_eq!(m.bus.port_in(0x8D), 0x80);
+        m.set_break(false);
+        m.bus.break_auto = true; // automatic BREAK of set_local ORs in
+        assert_eq!(m.bus.port_in(0x8D), 0x80);
     }
 }

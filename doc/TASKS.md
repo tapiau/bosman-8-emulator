@@ -27,6 +27,7 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
 - ✅ T3.3 Klawiatura: porty 0x8C/0x8D/0x8E, VSYNC na bicie 2 portu 0x8E
 - ✅ T3.4 Okno (minifb), mapowanie klawiszy hosta, BREAK, LOCAL; tryb `--headless` ze zrzutem PGM
 - ✅ T3.5 Weryfikacja ekranu startowego (baner „ANG-3000”) i offsetu wierszy ❓ offset do potwierdzenia zdjęciem prawdziwego ekranu
+- ✅ T3.6 Pasek przycisków w oknie terminala (RESET, BREAK, LOCAL, STOP, CAPS, TURBO + kontrolki LINK/BEEP/WAIT), API `set_stop`, `set_local`, `mode()`
 
 ## Faza 4 — integracja
 - ✅ T4.1 Bosman ↔ ANG po TCP: znak zachęty `A>` na ekranie terminala
@@ -60,3 +61,7 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
   przez cpmtools i w emulatorze (`DIR B:`, `B:STAT`, `PIP A:=B:...`).
 - 2026-11-13: znaleziona w ROM strona serwera łącza D/E/F — tryb slave (0x1564) wchodzi poleceniem CCP `DEBUG`;
   pierwszy test dwóch emulatorów: handshake OK, katalog zdalny jeszcze nie.
+- 2026-11-13: T3.6 — pasek przycisków pod ekranem ANG-3001 (rysowany fontem z ROM-u, mysz przez minifb), skróty F7 = LOCAL,
+  F8/Scroll Lock = STOP. Z ROM-u: LOCAL to osobna pętla 0x0578 bez flagi w RAM-ie, wyjście = jedno naciśnięcie BREAK;
+  STOP (bit 4 portu 0x8D) to stan poziomu, nie zbocze → przełącznik/klawisz z zatrzaskiem. Rdzeń śledzi tryb po PC
+  (`TermMode`), `set_local` sam wykonuje sekwencję BREAK/ESC. Testy `crates/ang3001/tests/modes.rs`.

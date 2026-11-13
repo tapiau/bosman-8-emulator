@@ -85,17 +85,45 @@ wyjście licznika 1. Start: pisk 0x0EEF (≈340 Hz, A=5Ah), po teście RAM
   następny po odczycie 0x8C. Bit 0 domyślnie 1 (autorepetycję robi system
   hosta), API `set_key_held` pozwala użyć autorepetycji ROM-u.
 - **0x8D IN** — bit 7: 1 = normalna ścieżka startu; bit 6: 0 = CAPS (odwraca
-  wielkość liter); bit 5: 0 = wciśnięty BREAK; bit 4: 🟡 **0 = tryb
+  wielkość liter); bit 5: 0 = wciśnięty BREAK; bit 4: 🟢 **0 = tryb
   stronicowania**: `CHECK_KEY_BREAK` przy bit 4 = 0 uzbraja licznik linii
   `0x7F0E` (0x9F), a `LF_HANDLER` po pełnym ekranie wypisuje „STOP” w pasie
   komunikatów i czeka na klawisz albo na powrót bitu 4 do 1 (pętla `l0a23h`);
-  przy 1 licznik jest zerowany (brak stronicowania). Stan spoczynkowy: `0xF0`.
+  przy 1 licznik jest zerowany (brak stronicowania), szczegóły niżej. Stan
+  spoczynkowy: `0xF0`.
   Bit 5 = 0 w chwili resetu wybiera tryb 8251 `FAh` i dzielnik z 0x01A6.
 - **BREAK** (sprawdzone w emulatorze 🟢): naciśnięcie i puszczenie → w pasie
   komunikatów „BREAK - powtórz   LOCAL - ESC”; ponowny BREAK → komenda 8251
   `0Dh` (nadawanie BREAK ~0,25 s) i powrót; `ESC` → tryb **LOCAL** (napis
   „LOCAL”, klawisze od razu na ekran, nic nie idzie do łącza). Domyślnie po
   starcie tryb DUPLEX: klawisze idą tylko do łącza (bez lokalnego echa).
+- **Wyjście z LOCAL** 🟢 (kod + test `tests/modes.rs`): pętla LOCAL `l0578h`
+  (0x0578–0x05BC) co 1/25 s sprawdza bit 5 portu 0x8D; BREAK → `l05b6h` czeka
+  na puszczenie → `l04bah` (odtwarza pas komunikatów) → `MAIN_LOOP`, czyli
+  **jedno naciśnięcie BREAK wraca do DUPLEX** (bez nadawania BREAK do łącza).
+  W LOCAL dane z łącza nie są czytane (czekają w 8251). ROM **nie ma flagi
+  trybu w RAM-ie** — każdy tryb to osobna pętla, więc emulator wyznacza tryb
+  po PC wchodzącym w pętle: 0x04BD = normalny, 0x0533 = zachęta BREAK,
+  0x0578 = LOCAL, 0x0A23 = STOP (`TermMode`, `Ang3001::mode()`). Przycisk
+  LOCAL / F7 w GUI wykonuje za użytkownika: BREAK (100 ms) → czeka na zachętę
+  → ESC (włączenie) albo BREAK (wyłączenie).
+- **STOP** 🟢 (zachowanie z kodu, test) / ❓ (wygląd klawisza): bit 4 = 0 przy
+  pierwszym obiegu `CHECK_KEY_BREAK` ustawia licznik `0x7F0E` na 0x9F, więc
+  STOP pojawia się już przy najbliższym przewinięciu; potem licznik startuje od
+  0x81 i kolejna strona to dokładnie 24 wiersze (odebranie klawisza zeruje
+  licznik). W pasie komunikatów: „STOP” (kol. 13) i „speed 1 2” — w pętli
+  `l0a23h` klawisze `1`/`2` wybierają szybkie/płynne przewijanie (`0x7F00`,
+  1 = bez czekania na VSYNC; wybrany numer w inwersji), każdy inny klawisz
+  pokazuje następną stronę (klawisz jest połykany, nie idzie do łącza), a
+  powrót bitu 4 do 1 albo BREAK kończy czekanie bez stronicowania. ROM
+  sprawdza **poziom** bitu, nie zbocze — klawisz chwilowy kończyłby czekanie
+  zaraz po puszczeniu — więc na klawiaturze musi to być przełącznik albo
+  klawisz z zatrzaskiem (jak CAPS); w emulatorze przełącznik (F8 / Scroll
+  Lock / przycisk STOP, API `set_stop`). Nazwa i miejsce na prawdziwej
+  klawiaturze — nieznane.
+- **RESET** (F11 / przycisk): reset CPU, 8253, 8251, scrolla i mapowania ROM,
+  RAM zostaje (ROM i tak testuje i czyści używaną pamięć); CAPS/STOP jako
+  zatrzaski zachowują stan.
 - Polskie litery: w ROM-owym foncie (glif `c` pod 0x3600 + 10·c, piksele w
   bitach 7..2) kody **0x01 ę, 0x02 ź, 0x03 ł, 0x04 ń, 0x05 ś, 0x06 ą,
   0x07 ó, 0x0B ż, 0x0C ć** 🟢 (odczytane z bitmap); 0x12–0x1C — elementy

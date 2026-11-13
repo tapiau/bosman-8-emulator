@@ -31,7 +31,10 @@ Dyskietka z narzędziami CP/M (PIP, STAT, ED, ZSID, …): `disks/narzedzia.img`,
 Specyfikacje łącza: `none`, `loopback`, `stdio`, `tcp-listen:ADDR:PORT`,
 `tcp:HOST:PORT`, `serial:DEV[@BAUD]`. Pełna lista opcji: `--help`.
 
-Klawisze terminala: F12 (trzymany) = BREAK, F11 = reset, F10 = CAPS, F9 = turbo.
+Klawisze terminala: F12 (trzymany) = BREAK, F11 = reset, F10 = CAPS, F9 = turbo,
+F8 / Scroll Lock = STOP (stronicowanie), F7 = LOCAL wł./wył. Te same funkcje mają
+przyciski pod ekranem (RESET, BREAK, LOCAL, STOP, CAPS, TURBO — klikane myszą,
+przełączniki podświetlone, gdy aktywne) i kontrolki LINK / BEEP / WAIT.
 
 ## Dokumentacja
 

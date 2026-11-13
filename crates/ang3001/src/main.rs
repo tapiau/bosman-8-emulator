@@ -14,13 +14,21 @@
 //! ang3001 --headless --link none --inject text.bin --dump-text
 //! ```
 //!
-//! Window: 1024x768 (each emulated pixel 2x3, 4:3 picture). Keys: typed
+//! Window: 1024x768 picture (each emulated pixel 2x3, 4:3) plus a button
+//! bar below it (`toolbar.rs`), drawn with the ROM font like a row of
+//! function keys: RESET, BREAK (held while pressed), LOCAL, STOP, CAPS and
+//! TURBO - toggles are lit while active - and LEDs LINK (peer connected),
+//! BEEP and WAIT (the ROM waits in STOP after a page). Keys: typed
 //! characters are sent as ASCII (host keyboard layout honoured), Enter =
 //! 0x0D, Backspace = 0x08, Tab = 0x09, Esc = 0x1B, Delete = 0x7F,
 //! Ctrl+letter = control code, arrows = VT52 `ESC A/B/C/D` (`--arrows`),
-//! F12 (hold) = BREAK, F11 = reset, F10 = CAPS toggle, F9 = turbo toggle.
+//! F12 (hold) = BREAK, F11 = reset, F10 = CAPS toggle, F9 = turbo toggle,
+//! F8 / Scroll Lock = STOP (paging) toggle, F7 = LOCAL on/off.
 //! The beeper is not played yet; while it sounds the window title shows
-//! `BEEP <freq> Hz` (headless mode prints it to stderr).
+//! `BEEP <freq> Hz` and the BEEP LED is lit (headless mode prints it to
+//! stderr).
+
+mod toolbar;
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -30,7 +38,8 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use ang3001::{Ang3001, Config, PHOSPHOR_AMBER, PHOSPHOR_GREEN, PHOSPHOR_WHITE, SCREEN_H, SCREEN_W};
-use minifb::{InputCallback, Key, KeyRepeat, Scale, Window, WindowOptions};
+use minifb::{InputCallback, Key, KeyRepeat, MouseButton, MouseMode, Scale, Window, WindowOptions};
+use toolbar::{Action, Toolbar};
 
 const HELP: &str = "\
 ang3001 - ANG-3001 graphics terminal emulator (Z80B, 512x256 mono)
@@ -76,9 +85,20 @@ KEYS (window):
   Ctrl+[ \\ ] ^ _      0x1B 0x1C 0x1D 0x1E 0x1F
   arrows              see --arrows
   F12 (hold)          BREAK key
-  F11                 reset terminal
+  F11                 reset terminal (CPU and chips; RAM is kept)
   F10                 toggle CAPS (the ROM swaps letter case while active)
   F9                  toggle turbo
+  F8, Scroll Lock     toggle STOP (page mode): after a screen full of lines the
+                      terminal shows STOP and waits for a key (1 / 2 = fast /
+                      smooth scrolling); switching STOP off resumes
+  F7                  LOCAL on/off: types BREAK + ESC (on) or BREAK (off) for
+                      you; in LOCAL keys go to the screen, not to the line
+
+BUTTONS (window, below the screen; click with the mouse):
+  RESET BREAK LOCAL STOP CAPS TURBO   same as the keys above; BREAK is held
+                      while the button is pressed, toggles are lit while on
+  LEDs                LINK = peer connected, BEEP = beeper sounding,
+                      WAIT = terminal waits in STOP (press a key for more)
 ";
 
 struct Opts {
@@ -324,7 +344,11 @@ fn gui(m: &mut Ang3001, o: &Opts) -> Result<(), String> {
         1 => (1, 1),
         n => (2, n),
     };
-    let (w, h) = (SCREEN_W * sx, SCREEN_H * sy);
+    let fs = sx; // button label font scale
+    let screen_h = SCREEN_H * sy;
+    let (w, h) = (SCREEN_W * sx, screen_h + Toolbar::height(fs));
+    let font = (0..=255u8).map(|c| m.glyph(c)).collect();
+    let mut bar = Toolbar::new(font, w, screen_h, fs);
     let mut win = Window::new(
         "ANG-3001",
         w,
@@ -342,7 +366,6 @@ fn gui(m: &mut Ang3001, o: &Opts) -> Result<(), String> {
     let slice = (o.cfg.cpu_hz / 50) as u64;
     let frame = Duration::from_millis(20);
     let mut turbo = o.turbo;
-    let mut caps = false;
     let mut typist = Typist { pending: o.typed.iter().copied().collect() };
     let mut title = String::new();
     let mut next = Instant::now();
@@ -368,12 +391,6 @@ fn gui(m: &mut Ang3001, o: &Opts) -> Result<(), String> {
                         Arrows::None => b"",
                     };
                 }
-                Key::F11 => m.reset(),
-                Key::F10 => {
-                    caps = !caps;
-                    m.set_caps(caps);
-                }
-                Key::F9 => turbo = !turbo,
                 _ if ctrl_down => {
                     code = match k {
                         Key::LeftBracket => Some(0x1B),
@@ -397,7 +414,35 @@ fn gui(m: &mut Ang3001, o: &Opts) -> Result<(), String> {
         for c in chars.borrow_mut().drain(..) {
             m.key_press(c);
         }
-        m.set_break(win.is_key_down(Key::F12));
+        // function keys (no auto-repeat) and the button bar
+        let mut actions: Vec<Action> = win
+            .get_keys_pressed(KeyRepeat::No)
+            .into_iter()
+            .filter_map(|k| match k {
+                Key::F11 => Some(Action::Reset),
+                Key::F10 => Some(Action::Caps),
+                Key::F9 => Some(Action::Turbo),
+                Key::F8 | Key::ScrollLock => Some(Action::Stop),
+                Key::F7 => Some(Action::Local),
+                _ => None,
+            })
+            .collect();
+        let mouse = win.get_mouse_pos(MouseMode::Discard);
+        actions.extend(bar.mouse(mouse, win.get_mouse_down(MouseButton::Left)));
+        for a in actions {
+            match a {
+                Action::Reset => m.reset(),
+                Action::Caps => m.set_caps(!m.caps()),
+                Action::Turbo => turbo = !turbo,
+                Action::Stop => m.set_stop(!m.stop()),
+                Action::Local => {
+                    m.set_local(!m.is_local());
+                }
+                Action::Break => {} // momentary, see below
+            }
+        }
+        let break_held = win.is_key_down(Key::F12) || bar.break_held();
+        m.set_break(break_held);
         typist.step(m);
 
         // emulate
@@ -413,6 +458,20 @@ fn gui(m: &mut Ang3001, o: &Opts) -> Result<(), String> {
 
         // draw
         m.render(&mut screen);
+        let b = m.beep();
+        let link_up = m.link().is_some_and(|l| l.status().connected);
+        let st = toolbar::State {
+            break_held,
+            local: m.is_local(),
+            local_pending: m.local_switching(),
+            stop: m.stop(),
+            caps: m.caps(),
+            turbo,
+            waiting: m.is_stopped(),
+            beep: b.active,
+            link: link_up,
+        };
+        bar.draw(&mut buf, &st, o.cfg.fg);
         for y in 0..SCREEN_H {
             let src = &screen[y * SCREEN_W..(y + 1) * SCREEN_W];
             let dst0 = y * sy * w;
@@ -427,11 +486,10 @@ fn gui(m: &mut Ang3001, o: &Opts) -> Result<(), String> {
         }
         win.update_with_buffer(&buf, w, h).map_err(|e| e.to_string())?;
 
-        let b = m.beep();
         let link = m.link().map(|l| l.describe()).unwrap_or_default();
         let t = format!(
             "ANG-3001 - {link}{}{}{}",
-            if caps { " - CAPS" } else { "" },
+            if m.caps() { " - CAPS" } else { "" },
             if turbo { " - TURBO" } else { "" },
             if b.active { format!(" - BEEP {:.0} Hz", b.freq_hz) } else { String::new() },
         );
