@@ -33,6 +33,9 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
 - ⏳ T4.2 Uruchomienie demek z `bosman-8-ang-3000-rom/demo` (wstrzyknięcie plików na RAM-dysk)
 - ✅ T4.3 Narzędzie `b8disk` (new/ls/put/get/rm) dla obrazów dyskietek 200/400/800 KB; obraz `disks/narzedzia.img`
 
+## Faza 4b — łącze między Bosmanami
+- 🔄 T4.4 Napędy D/E/F przez SIO-B (master ↔ slave `DEBUG`): połączenie działa, odczyt katalogu jeszcze nie — zob. [bosman8-interlink.md](bosman8-interlink.md)
+
 ## Faza 5 — później
 - ⏳ Dźwięk (cpal) w terminalu
 - ⏳ Wersja webowa (WASM + canvas, łącze przez WebSocket albo oba emulatory w jednej stronie)
@@ -55,3 +58,5 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
   klawiaturze terminala → „Brak pliku”. Dodane README z instrukcją uruchomienia.
 - 2026-11-13: T4.3 — `b8disk` + moduł `cpmfs`; obraz `disks/narzedzia.img` (14 narzędzi CP/M), zweryfikowany
   przez cpmtools i w emulatorze (`DIR B:`, `B:STAT`, `PIP A:=B:...`).
+- 2026-11-13: znaleziona w ROM strona serwera łącza D/E/F — tryb slave (0x1564) wchodzi poleceniem CCP `DEBUG`;
+  pierwszy test dwóch emulatorów: handshake OK, katalog zdalny jeszcze nie.
