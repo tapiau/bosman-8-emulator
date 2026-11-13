@@ -68,7 +68,7 @@ jobs:
           for b in bosman8 ang3001 b8disk; do
             cp "target/${{ matrix.target }}/release/$b$EXT" "dist/$PKG/"
           done
-          cp -r roms disks doc README.md "dist/$PKG/"
+          cp -r roms disks doc tools README.md "dist/$PKG/"
           cd dist
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             7z a -tzip "$PKG.zip" "$PKG" >/dev/null
@@ -81,6 +81,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
+          cp tools/bsrv/BSRV.COM dist/BSRV.COM
           DEBVER="${GITHUB_REF_NAME#v}"
           [[ "$GITHUB_REF_TYPE" == "tag" ]] || DEBVER="0.0.0~git${GITHUB_SHA::7}"
           packaging/debian/build-deb.sh "$DEBVER" target/${{ matrix.target }}/release dist
@@ -91,6 +92,7 @@ jobs:
           path: |
             dist/${{ env.PKG }}.*
             dist/*.deb
+            dist/BSRV.COM
 
   publish:
     name: Publish GitHub Release

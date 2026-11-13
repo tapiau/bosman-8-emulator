@@ -117,6 +117,13 @@ pub trait Endpoint: Send {
     /// backed by a real serial port reprogram it (after bytes already queued
     /// have been sent); all others ignore it. Never blocks.
     fn set_line_params(&mut self, _params: LineParams) {}
+    /// Change line parameters at emulated time `t`. Hardware backends preserve
+    /// the settling interval before subsequent timed bytes, even if draining
+    /// and reconfiguring the physical port takes longer than emulated time.
+    fn set_line_params_at(&mut self, params: LineParams, t: f64) {
+        let _ = t;
+        self.set_line_params(params);
+    }
     /// Current line status.
     fn status(&self) -> LineStatus {
         LineStatus { connected: true }

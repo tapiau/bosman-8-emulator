@@ -77,14 +77,16 @@ ROM-y (`roms/`) pochodzą z repozytoriów analizy `bosman-8-rom` i `bosman-8-ang
 
 Paczki budują GitHub Actions (`.github/workflows/release.yml`) na maszynach
 z Linuksem, Windowsem i macOS (arm64 i x86_64). Każda paczka zawiera
-`bosman8`, `ang3001`, `b8disk`, katalogi `roms/`, `disks/`, `doc/` i README —
+`bosman8`, `ang3001`, `b8disk`, katalogi `roms/`, `disks/`, `doc/`, `tools/` i README —
 ROM-y są szukane obok programu, więc wystarczy rozpakować i uruchomić.
+`BSRV.COM` jest też osobnym plikiem wydania: serwer D/E/F dla prawdziwych
+Bosmanów z ROM-ami UNIMOR ZJ, z [instrukcją instalacji](tools/bsrv/README.md).
 
 Publikacja wydania:
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0     # → workflow buduje paczki i tworzy Release na GitHubie
+git tag v0.3.0
+git push origin v0.3.0     # → workflow buduje paczki i tworzy Release na GitHubie
 ```
 
 Bez taga: zakładka Actions → Release → „Run workflow” buduje paczki jako

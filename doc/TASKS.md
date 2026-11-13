@@ -36,7 +36,7 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
 - ✅ T4.3 Narzędzie `b8disk` (new/ls/put/get/rm) dla obrazów dyskietek 200/400/800 KB; obraz `disks/narzedzia.img`
 
 ## Faza 4b — łącze między Bosmanami
-- ✅ T4.4 Napędy D/E/F przez SIO-B (master ↔ slave `DEBUG`): D/E/F = A/B/C serwera, `DIR`, odczyt (`E:PIP A:=E:STAT.COM`) i zapis działają między dwoma emulatorami (TCP; test `crates/bosman8/tests/interlink.rs`); `--trace-aux`. ❓ z prawdziwym Bosmanem przez `serial:` brak przełączania 9600 → 20833 bit/s — zob. [bosman8-interlink.md](bosman8-interlink.md)
+- ✅ T4.4 Napędy D/E/F przez SIO-B (master ↔ slave `DEBUG`): D/E/F = A/B/C serwera, `DIR`, odczyt (`E:PIP A:=E:STAT.COM`) i zapis działają między dwoma emulatorami (TCP; test `crates/bosman8/tests/interlink.rs`); `--trace-aux`. ❓ rzeczywiste ROM-y UNIMOR ZJ nie mają rozkazu DEBUG 60 (serwer D/E/F); podłączony egzemplarz zidentyfikowany jako 1987-10-20; BSRV.COM dla obu ROM-ów ZJ i instalator przez DEBUG (tools/bsrv); ✅ sprzęt: katalog E:, odczyt/zapis pliku z porównaniem, kasowanie; wymagane 20 ms ochrony TX przed zmianą prędkości USB — zob. [bosman8-interlink.md](bosman8-interlink.md)
 
 - ✅ T4.5 Port szeregowy hosta podąża za prędkością/formatem programowanym w SIO/8251 (`set_line_params`, `--fixed-baud`)
 

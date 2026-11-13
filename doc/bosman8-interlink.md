@@ -8,6 +8,37 @@ Pewność: 🟢 potwierdzone (kod jednoznaczny + działa między dwoma emulatora
 🟡 prawdopodobne (kod przeczytany, nieużywany przez mastera, nie testowane),
 ❓ hipoteza.
 
+## Zgodność ROM-ów — przyczyna problemu z prawdziwym Bosmanem
+
+Opis protokołu 60/F0–F3 poniżej dotyczy ROM-u **SAJ 32 KB** używanego
+w emulatorze. Oba obrazy **UNIMOR ZJ 16 KB** z repozytorium `bosman-8-rom`
+mają starszy monitor DEBUG bez rozkazu 60:
+
+| ROM | Pętla monitora | Weryfikacja rozkazu | Rozkaz 60 |
+|---|---|---|---|
+| ZJ CPMR 1987-03-24 | 0ED0 | 0ED7: `AND F1`; `CP 51`; `CP 50`; odrzucenie innych | ignorowany |
+| ZJCPMR 2311 1987-10-20 | 0F66 | 0F6D: taka sama weryfikacja | ignorowany |
+| SAJ / ANG-3001 | 1597 | zakres 50–60, tablica 15E3 | serwer dysków 1724 |
+
+W ZJ maska dopuszcza wyłącznie 50–5F. Dla 60 wynik AND F1 to 60,
+więc monitor wraca do odbioru; nie pobiera nawet parametru 00. Nie zmienia
+licznika 8253 i nie interpretuje późniejszego F1 jako nagłówka dyskowego.
+
+**Podłączony Bosman to wersja 1987-10-20**: 32 bajty od F4A4 odczytane
+przez DEBUG odpowiadają dokładnie bajtom ROM-u ZJCPMR 2311 od 13A4
+(obraz BIOS kopiowany z 1100 do F200). Wersja marcowa i SAJ mają w tym
+miejscu inne bajty. Powitanie 80 88 i niezmieniony F363=0D po 60 są
+zgodne z kodem październikowego monitora.
+
+Zatem brak odpowiedzi po 60 w tej konfiguracji wynika z **niezgodności
+protokołu ROM-ów**. Zmiany timingu TX ani wybór 19200/20833 nie dodadzą
+brakującego serwera. Obsługa D/E/F wymaga zgodnego serwera (np. programu
+w RAM dostosowanego do BIOS-u ZJ) albo ROM-u obsługującego protokół SAJ.
+Gotowy program [BSRV.COM](../tools/bsrv/README.md) uruchamia taki serwer
+w RAM-ie. Testy z oboma ROM-ami ZJ obejmują katalog, PIP w obie strony
+i zwolnienie łącza. Uploader przez DEBUG instaluje go na B: wersji
+październikowej z odczytem kontrolnym.
+
 ## Idea
 
 Dwa Bosmany łączy się kablem między kanałami **SIO-B** (V.24). Jeden przechodzi
@@ -198,7 +229,69 @@ Bez poprawki 1 test `interlink` daje dokładnie objaw z ręcznej próby
 
 ## Otwarte
 
-- Test z prawdziwym Bosmanem przez `serial:` (przełączanie prędkości jest zaimplementowane, nie sprawdzone na sprzęcie).
+- Próby z prawdziwym Bosmanem: handshake i odczyt DPB przy 9615 bit/s działają;
+  po `60 00` i zmianie na 20833 bit/s brak odpowiedzi na nagłówek F1
+  (stan z commita `e90c37a`). Samo ustawianie prędkości na adapterze nie
+  potwierdza działania transferu.
+- Kolejna poprawka do sprawdzenia na sprzęcie: zmiana parametrów portu ma
+  teraz znacznik czasu emulowanego (`set_line_params_at`). Po opróżnieniu TX
+  i konfiguracji portu backend ustawia nową bazę czasu, zachowując odstęp
+  do kolejnego bajtu. Wcześniej opóźnienie sterownika USB mogło zużyć całą
+  przerwę między zmianą prędkości a F1. Test zegara TX obejmuje konfigurację
+  trwającą 20 ms i zachowanie 2,5 ms przerwy. To hipoteza przyczyny awarii,
+  wymagająca ponownego testu z prawdziwym Bosmanem.
 - Rozkazy 50–5F poza 56/58/5B/5D nie są używane przez mastera D/E/F — opis z
   kodu, nietestowany (zdalny debugger — klient po stronie PC nie istnieje).
 - Wyświetlanie: w trybie slave ekran serwera stoi (brak komunikatów) — tak ma ROM.
+
+### Ponowna próba po poprawce zegara TX
+
+Po ponownym podłączeniu PL2303 do `/dev/ttyUSB0` próba `DIR D:` nadal
+kończy się brakiem odpowiedzi po zmianie prędkości. Odczyt DPB i maski
+napędów działa; powitanie prawdziwego Bosmana to `80 88`. Sama poprawka
+zachowania przerwy nie rozwiązała problemu. Następny krok: porównać
+konfigurację V.24 w RAM prawdziwej maszyny z emulatorem, po ponownym wejściu
+w `DEBUG`. Narzędzie `cargo run -p b8-link --example interlink_inspect --
+/dev/ttyUSB0` odczytuje F360, F2AB i F4A4 przez rozkazy monitora; nie
+przełącza do serwera dysków i nie zapisuje pamięci. Odczyty monitora poniżej
+8000h pokazują RAM pod ROM-em, więc nie nadają się do zrzutu kodu ROM.
+
+Odczyt z prawdziwego Bosmana po ponownym `DEBUG`: `F360..F36E` =
+`E1 4C EA 0D 00 E1 4C EA 0D 00 E1 4C EA 0D 00`. Pod F4A4 nie ma
+identyfikacji opisanej dla ROM-u emulatora, lecz kod (`C0 D3 0E C9 ...`),
+a hello wynosi `80 88`: nie należy zakładać identycznego układu ROM/BIOS.
+Osobna próba nagłówka F1 przy 20833 bit/s, z przerwą 50 ms przed i po
+zmianie prędkości oraz 3 ms między bajtami, również nie dała odpowiedzi.
+Skrócenie przerwy przez emulator nie wyjaśnia więc całego problemu.
+Opcjonalny drugi argument `interlink_inspect DEVICE DISK_BAUD` uruchamia
+rozkaz 60, wysyła wyłącznie nagłówek F1 (HOME/wybór napędu A), sprawdza
+odpowiedź i próbuje zwolnić serwer rozkazem F0; nie czyta ani nie zapisuje
+sektorów. Po nieudanej próbie może być konieczny reset i ponowne `DEBUG`.
+
+### Rozkaz 60 nie przełącza badanego Bosmana
+
+Dalsza próba przy 19200 bit/s również bez odpowiedzi na F1. Następnie,
+**bez F0 i bez resetu**, monitor ponownie odpowiedział `80 88` przy 9615
+bit/s; odczyt F360 nadal pokazał licznik F363 = 0D. Zatem badany Bosman
+pozostaje w monitorze po `60 00`, zamiast przejść do serwera dysków jak
+ROM emulatora. Różna implementacja/obsługa 60 w rzeczywistym ROM-ie jest
+obecnie głównym tropem; sam brak odpowiedzi nie potwierdza awarii zmiany
+prędkości. Potrzebny zrzut rzeczywistego ROM-u do porównania procedury
+monitora i jego tablicy rozkazów. Tryb `--active` narzędzia pozwala wysłać
+sam nagłówek przy zadanej prędkości, pomijając powitanie i rozkaz 60.
+Po timeoucie narzędzie nie wysyła F0.
+
+### BSRV na sprzęcie — przełączanie portu USB
+
+Po instalacji i uruchomieniu BSRV.COM powitanie `00 88` oraz odczyt DPB
+przez emulator działają, lecz pierwsza próba `DIR E:` nie otrzymała
+odpowiedzi po zmianie prędkości. BSRV nadal odpowiadał przy 9615 bit/s.
+Osobna próba `60 00`, 50 ms przerwy przed ustawieniem 20833 bit/s i
+50 ms po nim dała poprawną odpowiedź `00` na F1. Potwierdza to działanie
+serwera przy szybszej prędkości i wskazuje na odstęp przed przestawieniem
+adaptera USB. Backend dodaje teraz 20 ms ochrony po ostatnim zapisie TX
+przed zmianą parametrów portu, oprócz zachowania przerwy po konfiguracji.
+Pełny test emulatora z tą poprawką po ponownym uruchomieniu BSRV **przeszedł
+na sprzęcie**: katalog E:, odczyt BSRV.COM, zapis pliku tymczasowego,
+odczyt kontrolny (640 bajtów zgodnych), usunięcie pliku i zwolnienie F0.
+Szczegóły i SHA-256 w [tools/bsrv/README.md](../tools/bsrv/README.md).

@@ -522,17 +522,17 @@ impl Ang3001 {
         if self.auto != AutoSeq::Idle {
             self.step_auto();
         }
-        if self.cfg.follow_line_params && self.bus.line.is_some() && self.bus.line != self.line_applied {
-            if let (Some(l), Some(p)) = (self.link.as_mut(), self.bus.line) {
-                l.set_line_params(p);
-                self.line_applied = Some(p);
-            }
-        }
         let now = self.bus.now as f64 / self.bus.cpu_hz as f64;
         let usart = &mut self.bus.usart;
         while let Some(b) = usart.take_tx() {
             if let Some(l) = self.link.as_mut() {
                 l.write_at(b, now);
+            }
+        }
+        if self.cfg.follow_line_params && self.bus.line.is_some() && self.bus.line != self.line_applied {
+            if let (Some(l), Some(p)) = (self.link.as_mut(), self.bus.line) {
+                l.set_line_params_at(p, now);
+                self.line_applied = Some(p);
             }
         }
         let brk = usart.break_active();

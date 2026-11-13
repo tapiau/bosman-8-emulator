@@ -543,7 +543,7 @@ impl Bosman8 {
             let line = lines[i];
             if self.follow_line_params && line.is_some() && line != self.line_applied[i] {
                 let p = line.expect("checked");
-                ep.set_line_params(p);
+                ep.set_line_params_at(p, now);
                 self.line_applied[i] = line;
                 if aux || (i == 0 && self.trace_aux) {
                     line_log.push(format!("{} {now:11.6} line {p}", if i == 0 { "term" } else { "aux" }));

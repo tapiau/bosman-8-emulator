@@ -84,7 +84,7 @@ fn printable(v: &[u8]) -> String {
     s
 }
 
-fn pair() -> (Node, Node, Arc<Mutex<Vec<LineParams>>>) {
+fn pair(server_rom: &[u8]) -> (Node, Node, Arc<Mutex<Vec<LineParams>>>) {
     let (aux_s, aux_c) = b8_link::pair();
     let lines = Arc::new(Mutex::new(Vec::new()));
     let aux_c: Box<dyn Endpoint> = Box::new(RecordLine { inner: aux_c, log: lines.clone() });
@@ -93,9 +93,12 @@ fn pair() -> (Node, Node, Arc<Mutex<Vec<LineParams>>>) {
     let cfg = Config { fast_fdc: true, trace_aux: trace, ..Config::default() };
     let (t_s, h_s) = b8_link::pair();
     let (t_c, h_c) = b8_link::pair();
-    let mut s = Bosman8::new(&rom(), cfg.clone(), t_s, aux_s);
+    let mut s = Bosman8::new(server_rom, cfg.clone(), t_s, aux_s);
     let fmt = bosman8::disk::format_for(cfg.dip, 0);
-    s.insert_disk(0, Some(fmt.from_bytes(tools_disk())));
+    let mut image = tools_disk();
+    bosman8::cpmfs::CpmFs::new(&mut image, bosman8::cpmfs::Params::for_format(fmt)).unwrap()
+        .put(0, "BSRV.COM", include_bytes!("../../../tools/bsrv/BSRV.COM")).unwrap();
+    s.insert_disk(0, Some(fmt.from_bytes(image)));
     let c = Bosman8::new(&rom(), cfg, t_c, aux_c);
     (Node { m: s, host: h_s, out: Vec::new() }, Node { m: c, host: h_c, out: Vec::new() }, lines)
 }
@@ -144,14 +147,30 @@ fn command(n: &mut [Node; 2], cmd: &str, max_s: f64) -> String {
 
 #[test]
 fn remote_drives_over_sio_b() {
-    let (s, c, lines) = pair();
+    remote_drives_scenario(&rom(), "DEBUG");
+}
+
+#[test]
+fn remote_drives_zj_october_com_server() {
+    remote_drives_scenario(include_bytes!("../../../roms/bosman8-zj-19871020.bin"), "B:BSRV");
+}
+
+#[test]
+fn remote_drives_zj_march_com_server() {
+    remote_drives_scenario(include_bytes!("../../../roms/bosman8-zj-19870324.bin"), "B:BSRV");
+}
+
+fn remote_drives_scenario(server_rom: &[u8], start_command: &str) {
+    let (s, c, lines) = pair(server_rom);
     let mut n = [s, c];
     let bauds = || lines.lock().unwrap().iter().map(|p| p.baud).collect::<Vec<_>>();
     assert!(run_until(&mut n, 0, "A>", 10.0), "server: {}", n[0].text());
     assert!(run_until(&mut n, 1, "A>", 10.0), "client: {}", n[1].text());
     n[0].out.clear();
-    n[0].type_str("DEBUG\r");
-    assert!(run_until(&mut n, 0, "DEBUG", 1.0), "server: {}", n[0].text());
+    n[0].type_str(start_command);
+    n[0].type_str("\r");
+    let ready = if start_command == "DEBUG" { "DEBUG" } else { "BSRV 1.0" };
+    assert!(run_until(&mut n, 0, ready, 5.0), "server: {}", n[0].text());
     run_until(&mut n, 0, "\u{0}", 0.2);
 
     // First access to D/E/F asks whether to connect.
@@ -173,7 +192,12 @@ fn remote_drives_over_sio_b() {
     assert!(bauds().contains(&20833), "{:?}", bauds());
 
     // D: = server's A: (empty RAM disk), F: = server's C: (not present).
-    assert!(command(&mut n, "DIR D:", 10.0).contains("Brak pliku"));
+    let t = command(&mut n, "DIR D:", 10.0);
+    if start_command == "DEBUG" {
+        assert!(t.contains("Brak pliku"), "RAM disk: {t}");
+    } else {
+        assert!(!t.contains("Brak komunikacji"), "RAM disk: {t}");
+    }
     n[1].out.clear();
     n[1].type_str("DIR F:\r");
     assert!(run_until(&mut n, 1, "brak nap", 10.0), "DIR F: {}", n[1].text());
