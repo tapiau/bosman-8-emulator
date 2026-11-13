@@ -55,6 +55,13 @@ Init: `00,00,00,40h` (reset), słowo trybu (bajt ROM 0x0003 = `CDh`, albo
 `FAh` gdy bit 5 portu 0x8D = 0), komenda `05h` (TxEN|RxEN).
 Status: bit0 TxRDY, bit1 RxRDY, bit2 TxEMPTY (sprawdzany w `CHECK_KEY_BREAK`).
 Komenda `0Dh` (bit 3 = send break) używana przy BREAK.
+**Ustawienia linii trafiają do portu hosta** 🟢: rdzeń wylicza z trybu 8251
+i licznika 2 (przy `--pit-mhz`) prędkość i format, a backend `serial:`
+przestawia port (`--fixed-baud` wyłącza) — po starcie 100000 8N2, tak samo
+jak SIO-A Bosmana, więc emulowany terminal można podpiąć do prawdziwego
+Bosmana przez adapter przyjmujący 100 000 bit/s (np. PL2303HX — sprawdzone,
+że ustawia dokładnie). Prędkość zależy od nieznanego zegara 8253 (szacunek
+1,3 MHz) — przy innym `--pit-mhz` zmieni się też prędkość portu.
 Tryb `CDh` = asynchronicznie ×1, 8 bitów, bez parzystości, 2 bity stopu →
 11 bitów/znak; z licznikiem 2 = 13 przy 1,3 MHz daje 100 kbit/s ≈ 9100
 znaków/s (emulator liczy czas znaku z tych rejestrów, `--char-cycles`

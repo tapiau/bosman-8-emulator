@@ -62,8 +62,13 @@ rozkłada 3 młodsze bity A na Q6, Q4, Q5. A=FF → bank domyślny z `F26B`.
 ## Z80-SIO — porty 0x80–0x83  🟢
 80 = dane A, 81 = dane B, 82 = sterowanie A, 83 = sterowanie B
 (układ „C/D na A0, A/B na A1”).
-- Kanał A = **terminal** (ANG-3001), tryb synchroniczny ~100 kbit/s
-  (8253 licznik 1 = 20 → 100 kHz). WR3=E1, WR4=0C (sync, ×1), WR5=E8.
+- Kanał A = **terminal** (ANG-3001), **asynchronicznie 100 000 bit/s 8N2** 🟢
+  (8253 licznik 1 = 20 → 100 kHz, WR4=0Ch = ×1, bity stopu 11 = 2; WR3=E1,
+  WR5=E8 = 8 bitów). Wcześniej (także w `bosman-8-rom`) opisywane jako tryb
+  synchroniczny — błędnie: tryb synchroniczny to WR4 bity 2–3 = 00. Terminal
+  ma to samo ustawienie (8251, słowo trybu CDh = async ×1, 8N2, 100 kbit/s),
+  więc łącze da się poprowadzić przez zwykły adapter USB-RS232, który przyjmuje
+  100 000 bit/s (np. PL2303HX, FTDI).
 - Kanał B = V.24 (drugi komputer, PUNCH, napędy D/E/F), async ×16, domyślnie
   ~9600 (8253 licznik 2 = 13).
 - Używane rejestry: RR0 bit0 (Rx avail), bit2 (Tx empty), bit7 (break/abort,
@@ -72,9 +77,9 @@ rozkłada 3 młodsze bity A na Q6, Q4, Q5. A=FF → bank domyślny z `F26B`.
 - 🟢 Emulacja: model bajtowy z `b8-chips` wystarcza, przerwania SIO nie są
   używane (CONIN/CONOUT odpytują RR0/RR1). Czas znaku liczony z częstotliwości
   wyjścia 8253 (licznik 1 → A, 2 → B), dzielnika z WR4 i długości ramki:
-  kanał A sync 8 bitów → 100 kHz/8 = 12,5 kB/s = **320 cykli/bajt**; kanał B
-  async ×16, 8N1 (WR4=4C → 1 bit stopu) → 153,8 kHz/16/10 ≈ 961 B/s
-  ≈ 4160 cykli/bajt. Wysyłany BREAK (WR5 bit 4) jest przekazywany do endpointu;
+  kanał A 8N2 = 11 bitów → 100 kHz/11 ≈ 9090 B/s = **440 cykli/bajt**; kanał B
+  async ×16, 8N2 (WR4=4C → 2 bity stopu) → 153,8 kHz/16/11 ≈ 874 B/s
+  ≈ 4576 cykli/bajt. Wysyłany BREAK (WR5 bit 4) jest przekazywany do endpointu;
   odbieranego BREAK endpointy na razie nie zgłaszają.
 - 🟢 Odbiór (T4.4): 3-bajtowe FIFO jak w Z80-SIO, nadmiar czeka w kolejce
   hosta (bez przepełnień); po zapisie licznika 8253 danego kanału odbiornik
@@ -82,6 +87,19 @@ rozkłada 3 młodsze bity A na Q6, Q4, Q5. A=FF → bank domyślny z `F26B`.
   przyjdzie w ciągu 2 ms po zmianie prędkości, a bajty z TCP przychodzą
   paczkami); SIO-B gubi bajty, gdy odbiornik jest wyłączony (WR3 bit 0).
   Szczegóły i uzasadnienie: [bosman8-interlink.md](bosman8-interlink.md).
+
+### Prędkość portu hosta podąża za emulowanym SIO  🟢
+Rdzeń liczy dla każdego kanału asynchronicznego parametry linii — prędkość =
+wyjście 8253 / dzielnik z WR4, bity danych z WR5, parzystość i bity stopu z
+WR4 — i po każdej zmianie przekazuje je do endpointu
+(`Endpoint::set_line_params`). Backend `serial:` przestawia wtedy port hosta
+(po wysłaniu bajtów już zakolejkowanych), więc np. przełączenie łącza D/E/F
+9600 → 20 833 bit/s albo zmiana w menu „Program. V-24” działa z prawdziwym
+sprzętem. Po starcie: SIO-A 100000 8N2, SIO-B 9615 8N2. `--fixed-baud`
+wyłącza (port zostaje na `serial:DEV@BAUD`); `--trace-aux` loguje zmiany
+(`aux … line 20833 8N2`). Sprawdzone na PL2303HX (Linux): 9615, 20 833 i
+100 000 bit/s ustawiane dokładnie (`cargo run -p b8-link --example
+serial_speed -- /dev/ttyUSB0 20833`).
 
 ## 8253 — porty 0x84–0x87  🟢
 Zegar 2 MHz. Licznik 0 (tryb 2, BCD, 0x9999) — timing FDC/opóźnienia,

@@ -38,6 +38,8 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
 ## Faza 4b — łącze między Bosmanami
 - ✅ T4.4 Napędy D/E/F przez SIO-B (master ↔ slave `DEBUG`): D/E/F = A/B/C serwera, `DIR`, odczyt (`E:PIP A:=E:STAT.COM`) i zapis działają między dwoma emulatorami (TCP; test `crates/bosman8/tests/interlink.rs`); `--trace-aux`. ❓ z prawdziwym Bosmanem przez `serial:` brak przełączania 9600 → 20833 bit/s — zob. [bosman8-interlink.md](bosman8-interlink.md)
 
+- ✅ T4.5 Port szeregowy hosta podąża za prędkością/formatem programowanym w SIO/8251 (`set_line_params`, `--fixed-baud`)
+
 ## Faza 5 — później
 - ⏳ Dźwięk (cpal) w terminalu
 - ⏳ Wersja webowa (WASM + canvas, łącze przez WebSocket albo oba emulatory w jednej stronie)
@@ -78,3 +80,6 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
   przychodziły paczkami (`60 00 F1` naraz) → ginął F1. Poprawki: hold-off odbiornika 3 ms po zapisie licznika 8253
   kanału, 3-bajtowe FIFO odbiorcze SIO (`b8-chips`), SIO-B gubi bajty przy wyłączonym odbiorniku. Nowa opcja
   `--trace-aux`.
+- 2026-11-13: T4.5 — `Endpoint::set_line_params`; Bosman (SIO-A/B) i ANG (8251) przekazują zaprogramowaną prędkość
+  i format, `serial:` przestawia port hosta. Sprawdzone na PL2303HX: 9615 / 20833 / 100000 bit/s dokładnie.
+  Odkrycie: łącze Bosman ↔ ANG to async 100000 8N2 (SIO-A WR4=0Ch), nie tryb synchroniczny.

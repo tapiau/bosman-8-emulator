@@ -44,10 +44,15 @@ synchronicznego itp.). Każdy kanał emulowanego układu (SIO-A, SIO-B, 8251):
   czas znaku — dzięki temu nie ma przepełnień, których na prawdziwym sprzęcie
   pilnowałby protokół.
 
-Oryginalnie Bosman ↔ ANG pracują **synchronicznie, ~100 kbit/s** — zwykły UART
-PC tego nie zrobi, więc przy podpinaniu prawdziwego terminala/komputera przez
-port hosta potrzebny będzie adapter albo przestawienie trybu w emulowanym
-systemie (dla SIO-B Bosmana — async 9600 — działa wprost).
+Oryginalnie Bosman ↔ ANG pracują **asynchronicznie, 100 000 bit/s 8N2**
+(SIO-A WR4=0Ch, 8251 tryb CDh; wcześniej błędnie opisywane jako tryb
+synchroniczny). Emulowany układ przekazuje zaprogramowane parametry linii
+(prędkość, bity danych, parzystość, bity stopu) do endpointu
+(`Endpoint::set_line_params`); backend `serial:` przestawia wtedy port hosta.
+Dzięki temu prawdziwy terminal lub komputer można podpiąć przez adapter
+USB-RS232 przyjmujący niestandardowe prędkości (PL2303HX, FTDI, CP210x —
+100 000 i 20 833 bit/s), a zmiany prędkości wykonywane przez ROM (np. łącze
+D/E/F 9600 → 20 833) działają automatycznie. `--fixed-baud` to wyłącza.
 
 ## Czas
 

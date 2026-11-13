@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 
 use b8_chips::{DiskImage, Latch259, Pit8253, Sio, SioChannel, Wd1770, Wd1770Timing};
-use b8_link::Endpoint;
+use b8_link::{Endpoint, LineParams, Parity, StopBits};
 use iz80::{Cpu, Machine};
 
 pub mod disk;
@@ -76,6 +76,10 @@ pub struct Config {
     pub printer_ready: bool,
     /// Log bytes sent and received on SIO-B (aux) with the emulated time.
     pub trace_aux: bool,
+    /// Pass the line speed / format programmed into the SIO (8253 counter,
+    /// WR4, WR5) to the endpoints, so a host serial port follows the guest
+    /// (e.g. the 9600 → 20833 bit/s switch of the D/E/F link).
+    pub follow_line_params: bool,
 }
 
 impl Default for Config {
@@ -89,6 +93,7 @@ impl Default for Config {
             fast_fdc: false,
             printer_ready: true,
             trace_aux: false,
+            follow_line_params: true,
         }
     }
 }
@@ -113,6 +118,8 @@ pub struct Bus {
     io_counts: HashMap<(bool, u8), u32>,
     log: Vec<String>,
     timing_dirty: bool,
+    /// Asynchronous line parameters of SIO-A / SIO-B (None = sync mode or clock not running).
+    line: [Option<LineParams>; 2],
 }
 
 impl Bus {
@@ -190,6 +197,7 @@ impl Bus {
         let b = self.pit.output_hz(2);
         set_char_timing(&mut self.sio.a, a);
         set_char_timing(&mut self.sio.b, b);
+        self.line = [line_params(&self.sio.a, a), line_params(&self.sio.b, b)];
     }
 }
 
@@ -211,6 +219,30 @@ fn set_char_timing(ch: &mut SioChannel, clock_hz: Option<f64>) {
     };
     let cycles = CPU_HZ as f64 * bits as f64 * ch.clock_divider() as f64 / hz;
     ch.set_char_cycles(cycles.round().max(1.0) as u32);
+}
+
+/// Asynchronous line parameters of a channel (None in sync modes).
+fn line_params(ch: &SioChannel, clock_hz: Option<f64>) -> Option<LineParams> {
+    let hz = clock_hz.filter(|&h| h > 0.0)?;
+    if ch.sync_mode() {
+        return None;
+    }
+    let wr4 = ch.wr(4);
+    let baud = (hz / ch.clock_divider() as f64).round() as u32;
+    Some(LineParams {
+        baud: baud.max(1),
+        data_bits: ch.bits_per_char() as u8,
+        parity: match wr4 & 3 {
+            1 => Parity::Odd,
+            3 => Parity::Even,
+            _ => Parity::None,
+        },
+        stop_bits: match (wr4 >> 2) & 3 {
+            1 => StopBits::One,
+            2 => StopBits::OnePointFive,
+            _ => StopBits::Two,
+        },
+    })
 }
 
 impl Machine for Bus {
@@ -334,6 +366,9 @@ pub struct Bosman8 {
     cycles: u64,
     next_pump: u64,
     tx_break: [bool; 2],
+    /// Line parameters last passed to the term / aux endpoint.
+    line_applied: [Option<LineParams>; 2],
+    follow_line_params: bool,
     trace_cpu_from: Option<u16>,
     trace_cpu_left: u64,
     tracing_cpu: bool,
@@ -367,6 +402,7 @@ impl Bosman8 {
             io_counts: HashMap::new(),
             log: Vec::new(),
             timing_dirty: true,
+            line: [None; 2],
         };
         Self {
             cpu: Cpu::new_z80(),
@@ -377,6 +413,8 @@ impl Bosman8 {
             cycles: 0,
             next_pump: 0,
             tx_break: [false; 2],
+            line_applied: [None; 2],
+            follow_line_params: config.follow_line_params,
             trace_cpu_from: config.trace_cpu_from,
             trace_cpu_left: config.trace_cpu_limit,
             tracing_cpu: false,
@@ -483,6 +521,8 @@ impl Bosman8 {
 
     /// Move bytes between the SIO channels and the endpoints.
     fn pump(&mut self) {
+        let lines = self.bus.line;
+        let mut line_log = Vec::new();
         let chans: [(&mut SioChannel, &mut Box<dyn Endpoint>); 2] =
             [(&mut self.bus.sio.a, &mut self.term), (&mut self.bus.sio.b, &mut self.aux)];
         let mut sent = Vec::new();
@@ -494,6 +534,16 @@ impl Bosman8 {
                 ep.write(b);
                 if aux {
                     sent.push(b);
+                }
+            }
+            let line = lines[i];
+            if self.follow_line_params && line.is_some() && line != self.line_applied[i] {
+                let p = line.expect("checked");
+                ep.set_line_params(p);
+                self.line_applied[i] = line;
+                if aux || (i == 0 && self.trace_aux) {
+                    let t = self.cycles as f64 / CPU_HZ as f64;
+                    line_log.push(format!("{} {t:11.6} line {p}", if i == 0 { "term" } else { "aux" }));
                 }
             }
             let brk = ch.break_active();
@@ -525,6 +575,9 @@ impl Bosman8 {
                     None => break,
                 }
             }
+        }
+        for l in line_log {
+            self.bus.log(l);
         }
         if self.trace_aux {
             let t = self.cycles as f64 / CPU_HZ as f64;

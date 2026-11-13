@@ -67,13 +67,14 @@ Uwaga: łącze **zaczyna na 9600 bit/s, a po rozkazie 60h obie strony
 przełączają się na szybszą prędkość**: 8253 licznik 2 = 13 → 6 (bajty
 `F363/F364` konfiguracji V.24 `F360..F364`, używanej po 60h przez obie strony); przy zegarze 2 MHz i
 ×16 daje to 9615 → **20833 bit/s** (nominalnie pewnie „19200”, ale z błędem
-+8,5% — poza tolerancją zwykłego UART-u ustawionego na 19200). Backend
-`serial:` ma stałą prędkość i nie śledzi zmian 8253, więc z prawdziwym
-Bosmanem zadziała tylko faza połączenia (pytanie D/R, odczyt DPB); dalej
-trzeba by przestawiać port hosta na 20833 bit/s (adaptery FTDI/CP210x
-przyjmują niestandardowe prędkości) w chwili, gdy emulowany SIO-B zmienia
-zegar — **niezaimplementowane** ❓. Między dwoma emulatorami (TCP, `pair`)
-prędkość linii nie ma znaczenia.
++8,5% — poza tolerancją zwykłego UART-u ustawionego na 19200). Emulator
+przestawia port hosta razem z emulowanym SIO-B (`Endpoint::set_line_params`,
+zob. bosman8-hardware.md): 9615 → 20 833 po rozkazie 60h i z powrotem po F0h
+(test `interlink.rs` sprawdza tę sekwencję). Adapter musi przyjmować
+niestandardowe prędkości — PL2303HX ustawia 20 833 bit/s dokładnie
+(sprawdzone), FTDI i CP210x zwykle też. 🟡 Transfer z prawdziwym Bosmanem
+jeszcze nie był próbowany. Między dwoma emulatorami (TCP, `pair`) prędkość
+linii nie ma znaczenia.
 
 ## Wejście w tryb slave  🟢
 
@@ -197,7 +198,7 @@ Bez poprawki 1 test `interlink` daje dokładnie objaw z ręcznej próby
 
 ## Otwarte
 
-- Prędkość 9600 → 19200 przy prawdziwym sprzęcie przez `serial:` (wyżej).
+- Test z prawdziwym Bosmanem przez `serial:` (przełączanie prędkości jest zaimplementowane, nie sprawdzone na sprzęcie).
 - Rozkazy 50–5F poza 56/58/5B/5D nie są używane przez mastera D/E/F — opis z
   kodu, nietestowany (zdalny debugger — klient po stronie PC nie istnieje).
 - Wyświetlanie: w trybie slave ekran serwera stoi (brak komunikatów) — tak ma ROM.

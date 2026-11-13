@@ -3,13 +3,13 @@
 use std::io::{self, Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
 use serialport::{DataBits, FlowControl, Parity, StopBits};
 
-use crate::{Endpoint, LineStatus};
+use crate::{Endpoint, LineParams, LineStatus};
 
 const READ_TIMEOUT: Duration = Duration::from_millis(20);
 const BREAK_LENGTH: Duration = Duration::from_millis(250);
@@ -17,11 +17,33 @@ const BREAK_LENGTH: Duration = Duration::from_millis(250);
 enum TxMsg {
     Byte(u8),
     Break,
+    Params(LineParams),
+}
+
+fn apply_params(port: &mut Box<dyn serialport::SerialPort>, p: LineParams) -> serialport::Result<()> {
+    port.set_baud_rate(p.baud)?;
+    port.set_data_bits(match p.data_bits {
+        5 => DataBits::Five,
+        6 => DataBits::Six,
+        7 => DataBits::Seven,
+        _ => DataBits::Eight,
+    })?;
+    port.set_parity(match p.parity {
+        crate::Parity::None => Parity::None,
+        crate::Parity::Odd => Parity::Odd,
+        crate::Parity::Even => Parity::Even,
+    })?;
+    // serialport has no 1.5 stop bits; 2 is the closest a receiver accepts.
+    port.set_stop_bits(match p.stop_bits {
+        crate::StopBits::One => StopBits::One,
+        _ => StopBits::Two,
+    })
 }
 
 pub(crate) struct SerialEndpoint {
     dev: String,
-    baud: u32,
+    /// Current line setting (shown by describe), updated by the writer thread.
+    line: Arc<Mutex<String>>,
     tx: Sender<TxMsg>,
     rx: Receiver<u8>,
     ok: Arc<AtomicBool>,
@@ -74,22 +96,30 @@ impl SerialEndpoint {
             }
         })?;
 
+        let line = Arc::new(Mutex::new(format!("{baud} 8N1")));
+        let line_w = line.clone();
         let ok_w = ok.clone();
         thread::Builder::new().name("serial-writer".into()).spawn(move || {
             let mut out = Vec::with_capacity(256);
             while let Ok(msg) = tx_rx.recv() {
                 let mut pending_break = false;
+                let mut pending_params = None;
                 out.clear();
                 match msg {
                     TxMsg::Byte(b) => out.push(b),
                     TxMsg::Break => pending_break = true,
+                    TxMsg::Params(p) => pending_params = Some(p),
                 }
-                if !pending_break {
+                if !pending_break && pending_params.is_none() {
                     for m in tx_rx.try_iter() {
                         match m {
                             TxMsg::Byte(b) => out.push(b),
                             TxMsg::Break => {
                                 pending_break = true;
+                                break;
+                            }
+                            TxMsg::Params(p) => {
+                                pending_params = Some(p);
                                 break;
                             }
                         }
@@ -102,10 +132,26 @@ impl SerialEndpoint {
                     thread::sleep(BREAK_LENGTH);
                     let _ = writer.clear_break();
                 }
+                if let Some(p) = pending_params {
+                    // Bytes queued before the change still go out at the old speed:
+                    // flush() waits until the OS has transmitted them.
+                    let _ = writer.flush();
+                    let text = match apply_params(&mut writer, p) {
+                        // Report what the driver actually set (it may round).
+                        Ok(()) => match writer.baud_rate() {
+                            Ok(actual) if actual != p.baud => format!("{p} (port: {actual})"),
+                            _ => p.to_string(),
+                        },
+                        Err(e) => format!("{p} failed: {e}"),
+                    };
+                    if let Ok(mut l) = line_w.lock() {
+                        *l = text;
+                    }
+                }
             }
         })?;
 
-        Ok(SerialEndpoint { dev: dev.to_string(), baud, tx, rx, ok, stop })
+        Ok(SerialEndpoint { dev: dev.to_string(), line, tx, rx, ok, stop })
     }
 }
 
@@ -125,11 +171,15 @@ impl Endpoint for SerialEndpoint {
     fn send_break(&mut self) {
         let _ = self.tx.send(TxMsg::Break);
     }
+    fn set_line_params(&mut self, params: LineParams) {
+        let _ = self.tx.send(TxMsg::Params(params));
+    }
     fn status(&self) -> LineStatus {
         LineStatus { connected: self.ok.load(Ordering::SeqCst) }
     }
     fn describe(&self) -> String {
         let state = if self.ok.load(Ordering::SeqCst) { "open" } else { "error" };
-        format!("serial {} @ {} 8N1 ({state})", self.dev, self.baud)
+        let line = self.line.lock().map(|l| l.clone()).unwrap_or_default();
+        format!("serial {} @ {line} ({state})", self.dev)
     }
 }

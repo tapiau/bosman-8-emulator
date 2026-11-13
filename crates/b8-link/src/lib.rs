@@ -52,6 +52,50 @@ pub struct LineStatus {
     pub connected: bool,
 }
 
+/// Parity of an asynchronous serial line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Parity {
+    None,
+    Odd,
+    Even,
+}
+
+/// Stop bits of an asynchronous serial line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StopBits {
+    One,
+    OnePointFive,
+    Two,
+}
+
+/// Character format and speed of an asynchronous serial line, as programmed
+/// by the emulated machine (see [`Endpoint::set_line_params`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LineParams {
+    /// Bits per second (rounded; may be non-standard, e.g. 20833).
+    pub baud: u32,
+    /// Data bits, 5..=8.
+    pub data_bits: u8,
+    pub parity: Parity,
+    pub stop_bits: StopBits,
+}
+
+impl std::fmt::Display for LineParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let p = match self.parity {
+            Parity::None => 'N',
+            Parity::Odd => 'O',
+            Parity::Even => 'E',
+        };
+        let s = match self.stop_bits {
+            StopBits::One => "1",
+            StopBits::OnePointFive => "1.5",
+            StopBits::Two => "2",
+        };
+        write!(f, "{} {}{}{}", self.baud, self.data_bits, p, s)
+    }
+}
+
 /// A byte-stream endpoint of a virtual serial line.
 pub trait Endpoint: Send {
     /// Queue one byte for transmission. Never blocks.
@@ -60,6 +104,10 @@ pub trait Endpoint: Send {
     fn read(&mut self) -> Option<u8>;
     /// Send a BREAK condition (best effort; may be a no-op).
     fn send_break(&mut self) {}
+    /// The emulated chip changed the line speed / character format. Endpoints
+    /// backed by a real serial port reprogram it (after bytes already queued
+    /// have been sent); all others ignore it. Never blocks.
+    fn set_line_params(&mut self, _params: LineParams) {}
     /// Current line status.
     fn status(&self) -> LineStatus {
         LineStatus { connected: true }

@@ -74,12 +74,20 @@ impl Bosman8 {
     /// Replace the terminal (SIO-A) endpoint; the old one is returned (drop
     /// it to close it — before opening a new listener on the same port).
     pub fn set_term_endpoint(&mut self, ep: Box<dyn Endpoint>) -> Box<dyn Endpoint> {
+        self.line_applied[0] = None; // the new endpoint gets the current line parameters
         std::mem::replace(&mut self.term, ep)
     }
 
     /// Replace the V.24 (SIO-B) endpoint; the old one is returned.
     pub fn set_aux_endpoint(&mut self, ep: Box<dyn Endpoint>) -> Box<dyn Endpoint> {
+        self.line_applied[1] = None;
         std::mem::replace(&mut self.aux, ep)
+    }
+
+    /// Asynchronous line parameters currently programmed on SIO-A (0) or
+    /// SIO-B (1); None in synchronous mode or before the clock runs.
+    pub fn line_params(&self, channel: usize) -> Option<b8_link::LineParams> {
+        self.bus.line.get(channel).copied().flatten()
     }
 
     /// Pulse the NMI line (as an INTRQ of the WD1770 would).

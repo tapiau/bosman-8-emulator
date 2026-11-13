@@ -33,6 +33,9 @@ usage: bosman8 [options]
   --max-seconds N        stop after N emulated seconds
   --trace-io             log I/O port accesses (first 16 per port) to stderr
   --trace-cpu-from ADDR  trace instructions from PC=ADDR (hex) to stderr
+  --fixed-baud           keep host serial ports at the speed given in serial:DEV@BAUD
+                         (default: follow the speed/format the guest programs
+                         into the SIO, e.g. 9600 -> 20833 bit/s of the D/E/F link)
   --trace-aux            log bytes sent (->) and received (<-) on SIO-B to stderr,
                          with the emulated time in seconds
   -h, --help             this help";
@@ -46,6 +49,7 @@ struct Args {
     turbo: bool,
     trace_io: bool,
     trace_aux: bool,
+    fixed_baud: bool,
     trace_cpu_from: Option<u16>,
     disk_b: Option<PathBuf>,
     disk_c: Option<PathBuf>,
@@ -63,6 +67,7 @@ fn parse_args() -> Result<Args, String> {
         turbo: false,
         trace_io: false,
         trace_aux: false,
+        fixed_baud: false,
         trace_cpu_from: None,
         disk_b: None,
         disk_c: None,
@@ -93,6 +98,7 @@ fn parse_args() -> Result<Args, String> {
             "--turbo" => a.turbo = true,
             "--trace-io" => a.trace_io = true,
             "--trace-aux" => a.trace_aux = true,
+            "--fixed-baud" => a.fixed_baud = true,
             "--trace-cpu-from" => {
                 a.trace_cpu_from = Some(hex(val()?)?.try_into().map_err(|_| "address must be 0000..FFFF")?)
             }
@@ -185,6 +191,7 @@ fn run() -> Result<(), String> {
         dip: args.dip,
         trace_io: args.trace_io,
         trace_aux: args.trace_aux,
+        follow_line_params: !args.fixed_baud,
         trace_cpu_from: args.trace_cpu_from,
         fast_fdc: args.turbo,
         ..Config::default()

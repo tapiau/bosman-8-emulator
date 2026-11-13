@@ -2,7 +2,33 @@
 //! runs the CCP command `DEBUG` (slave mode), the client sees the server's
 //! drives as D:/E:/F:.
 
-use b8_link::Endpoint;
+use b8_link::{Endpoint, LineParams, LineStatus};
+use std::sync::{Arc, Mutex};
+
+/// Endpoint wrapper recording the line parameters the machine programs
+/// (what a host serial port would be switched to).
+struct RecordLine {
+    inner: Box<dyn Endpoint>,
+    log: Arc<Mutex<Vec<LineParams>>>,
+}
+
+impl Endpoint for RecordLine {
+    fn write(&mut self, b: u8) {
+        self.inner.write(b)
+    }
+    fn read(&mut self) -> Option<u8> {
+        self.inner.read()
+    }
+    fn set_line_params(&mut self, p: LineParams) {
+        self.log.lock().unwrap().push(p);
+    }
+    fn status(&self) -> LineStatus {
+        self.inner.status()
+    }
+    fn describe(&self) -> String {
+        self.inner.describe()
+    }
+}
 use bosman8::{Bosman8, Config, CPU_HZ};
 
 fn rom() -> Vec<u8> {
@@ -58,8 +84,10 @@ fn printable(v: &[u8]) -> String {
     s
 }
 
-fn pair() -> (Node, Node) {
+fn pair() -> (Node, Node, Arc<Mutex<Vec<LineParams>>>) {
     let (aux_s, aux_c) = b8_link::pair();
+    let lines = Arc::new(Mutex::new(Vec::new()));
+    let aux_c: Box<dyn Endpoint> = Box::new(RecordLine { inner: aux_c, log: lines.clone() });
     let trace = std::env::var_os("TRACE_AUX").is_some();
     // TRACE_AUX=1 prints the SIO-B traffic of both machines (--trace-aux).
     let cfg = Config { fast_fdc: true, trace_aux: trace, ..Config::default() };
@@ -69,7 +97,7 @@ fn pair() -> (Node, Node) {
     let fmt = bosman8::disk::format_for(cfg.dip, 0);
     s.insert_disk(0, Some(fmt.from_bytes(tools_disk())));
     let c = Bosman8::new(&rom(), cfg, t_c, aux_c);
-    (Node { m: s, host: h_s, out: Vec::new() }, Node { m: c, host: h_c, out: Vec::new() })
+    (Node { m: s, host: h_s, out: Vec::new() }, Node { m: c, host: h_c, out: Vec::new() }, lines)
 }
 
 /// Emulated time each machine runs before the other gets its turn. 20 ms is
@@ -116,8 +144,9 @@ fn command(n: &mut [Node; 2], cmd: &str, max_s: f64) -> String {
 
 #[test]
 fn remote_drives_over_sio_b() {
-    let (s, c) = pair();
+    let (s, c, lines) = pair();
     let mut n = [s, c];
+    let bauds = || lines.lock().unwrap().iter().map(|p| p.baud).collect::<Vec<_>>();
     assert!(run_until(&mut n, 0, "A>", 10.0), "server: {}", n[0].text());
     assert!(run_until(&mut n, 1, "A>", 10.0), "client: {}", n[1].text());
     n[0].out.clear();
@@ -137,6 +166,11 @@ fn remote_drives_over_sio_b() {
         assert!(text.contains(f), "{f} missing: {text}");
     }
     assert!(!text.contains("Brak komunikacji"), "{text}");
+    // The client's SIO-B started at 9615 bit/s (8253 counter 2 = 13) and
+    // switched to 20833 bit/s (counter 2 = 6) for the transfer: a host serial
+    // port behind the endpoint would have been reprogrammed accordingly.
+    assert_eq!(bauds().first(), Some(&9615), "{:?}", bauds());
+    assert!(bauds().contains(&20833), "{:?}", bauds());
 
     // D: = server's A: (empty RAM disk), F: = server's C: (not present).
     assert!(command(&mut n, "DIR D:", 10.0).contains("Brak pliku"));
@@ -170,4 +204,7 @@ fn remote_drives_over_sio_b() {
     n[1].out.clear();
     n[1].type_str("DIR G:\r");
     assert!(run_until(&mut n, 0, "A>", 10.0), "server did not return to CCP: {}", n[0].text());
+    // After the release (F0h) the client's line is back at 9600.
+    run_until(&mut n, 1, "\u{0}", 0.5);
+    assert_eq!(bauds().last(), Some(&9615), "{:?}", bauds());
 }

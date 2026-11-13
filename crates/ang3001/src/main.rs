@@ -69,6 +69,8 @@ OPTIONS:
   --load-ter FILE     upload a terminal binary (org 4000h) via ESC i and run it
                       with ESC 0 after boot (like RUNTERM.COM)
   --type TEXT         type TEXT on the keyboard after boot (\\r = Enter)
+  --fixed-baud        keep a serial:DEV@BAUD link at that speed (default: follow
+                      the speed/format the ROM programs into the 8251, 100000 8N2)
   --trace-io          log accesses to unknown ports (and 0x0A/0x0B) to stderr
   --headless          no window; runs unpaced unless --realtime
   --realtime          pace headless mode to real time
@@ -192,6 +194,7 @@ fn parse_args() -> Result<Opts, String> {
             }
             "--type" => o.typed.extend(val(&a)?.replace("\\r", "\r").bytes()),
             "--trace-io" => o.cfg.trace_io = true,
+            "--fixed-baud" => o.cfg.follow_line_params = false,
             "--headless" => o.headless = true,
             "--realtime" => o.realtime = true,
             "--after" => o.after = num(&a, val(&a)?)?,

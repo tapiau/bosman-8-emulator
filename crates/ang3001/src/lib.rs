@@ -31,7 +31,7 @@
 use std::collections::VecDeque;
 
 use b8_chips::{Pit8253, Usart8251};
-use b8_link::Endpoint;
+use b8_link::{Endpoint, LineParams, Parity, StopBits};
 use iz80::{Cpu, Machine};
 
 /// The ROM image this emulator was written against (`roms/ang3001.bin`).
@@ -119,6 +119,9 @@ pub struct Config {
     pub char_cycles: Option<u32>,
     /// Record accesses to unknown / interesting ports (see [`Ang3001::take_io_log`]).
     pub trace_io: bool,
+    /// Pass the line speed / format programmed into the 8251 and 8253 to the
+    /// link endpoint (a host serial port then follows, e.g. 100000 8N2).
+    pub follow_line_params: bool,
 }
 
 impl Default for Config {
@@ -132,6 +135,7 @@ impl Default for Config {
             bg: 0x000000,
             char_cycles: None,
             trace_io: false,
+            follow_line_params: true,
         }
     }
 }
@@ -197,6 +201,8 @@ struct Bus {
     char_cycles_fixed: Option<u32>,
     cpu_hz: u32,
     timing_dirty: bool,
+    /// Asynchronous line parameters programmed into the 8251 / 8253 (None = sync or no clock).
+    line: Option<LineParams>,
     // debug
     pc: u16,
     trace_io: bool,
@@ -228,6 +234,26 @@ impl Bus {
     /// 8251 mode instruction.
     fn update_char_timing(&mut self) {
         self.timing_dirty = false;
+        self.line = self.pit.output_hz(2).and_then(|clk| {
+            let mode = self.usart.mode();
+            if mode & 3 == 0 || !self.usart.initialized() {
+                return None; // synchronous mode / not programmed yet
+            }
+            Some(LineParams {
+                baud: ((clk / self.usart.clock_divider() as f64).round() as u32).max(1),
+                data_bits: self.usart.bits_per_char() as u8,
+                parity: match (mode >> 4) & 3 {
+                    1 => Parity::Odd,
+                    3 => Parity::Even,
+                    _ => Parity::None,
+                },
+                stop_bits: match mode >> 6 {
+                    2 => StopBits::OnePointFive,
+                    3 => StopBits::Two,
+                    _ => StopBits::One,
+                },
+            })
+        });
         let cycles = match self.char_cycles_fixed {
             Some(c) => c,
             None => {
@@ -353,6 +379,8 @@ pub struct Ang3001 {
     mode: TermMode,
     auto: AutoSeq,
     break_sent: bool,
+    /// Line parameters last passed to the link endpoint.
+    line_applied: Option<LineParams>,
     break_count: u64,
     since_pump: u32,
 }
@@ -386,6 +414,7 @@ impl Ang3001 {
             char_cycles_fixed: cfg.char_cycles,
             cpu_hz: cfg.cpu_hz,
             timing_dirty: true,
+            line: None,
             pc: 0,
             trace_io: cfg.trace_io,
             io_log: Vec::new(),
@@ -401,6 +430,7 @@ impl Ang3001 {
             mode: TermMode::Normal,
             auto: AutoSeq::Idle,
             break_sent: false,
+            line_applied: None,
             break_count: 0,
             since_pump: 0,
         }
@@ -417,7 +447,13 @@ impl Ang3001 {
 
     /// Attach the serial line (8251) to an endpoint.
     pub fn attach_link(&mut self, ep: Box<dyn Endpoint>) {
+        self.line_applied = None; // the new endpoint gets the current line parameters
         self.link = Some(ep);
+    }
+
+    /// Asynchronous line parameters the ROM programmed (None before init / in sync mode).
+    pub fn line_params(&self) -> Option<LineParams> {
+        self.bus.line
     }
 
     pub fn link(&self) -> Option<&dyn Endpoint> {
@@ -485,6 +521,12 @@ impl Ang3001 {
         self.since_pump = 0;
         if self.auto != AutoSeq::Idle {
             self.step_auto();
+        }
+        if self.cfg.follow_line_params && self.bus.line.is_some() && self.bus.line != self.line_applied {
+            if let (Some(l), Some(p)) = (self.link.as_mut(), self.bus.line) {
+                l.set_line_params(p);
+                self.line_applied = Some(p);
+            }
         }
         let usart = &mut self.bus.usart;
         while let Some(b) = usart.take_tx() {

@@ -116,3 +116,16 @@ fn serial_timing_follows_pit() {
     assert_eq!(m.pit().reload(2), Some(13));
     assert_eq!(m.usart().mode(), 0xCD);
 }
+
+#[test]
+fn line_params_after_boot_are_100k_8n2() {
+    // Mode instruction CDh (async x1, 8 bits, no parity, 2 stop bits) with
+    // 8253 counter 2 = 13 at 1.3 MHz: the Bosman-8 SIO-A runs the same
+    // 100000 bit/s 8N2 (WR4 = 0Ch), so a host serial port can join the link.
+    let t = booted();
+    let p = t.line_params().expect("8251 programmed");
+    assert_eq!(p.baud, 100_000);
+    assert_eq!(p.data_bits, 8);
+    assert_eq!(p.parity, b8_link::Parity::None);
+    assert_eq!(p.stop_bits, b8_link::StopBits::Two);
+}

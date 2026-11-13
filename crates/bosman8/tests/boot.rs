@@ -121,3 +121,17 @@ fn floppy_c_and_printer() {
     let printed = printable(&m.take_printer());
     assert!(printed.contains("TEST"), "printer: {printed}");
 }
+
+#[test]
+fn serial_line_params_after_boot() {
+    // SIO-A (terminal): WR4 = 0Ch = async x1, 2 stop bits; 8253 counter 1 = 20
+    // at 2 MHz → 100000 bit/s 8N2 — the same as the ANG-3001 8251 (mode CDh).
+    // SIO-B (V.24): WR4 = 4Ch = async x16, 2 stop bits; counter 2 = 13 → 9615.
+    let (mut m, mut host) = machine();
+    let mut out = Vec::new();
+    assert!(run_until(&mut m, &mut host, &mut out, b"A>", 10.0));
+    let a = m.line_params(0).expect("SIO-A async");
+    assert_eq!((a.baud, a.data_bits, a.stop_bits), (100_000, 8, b8_link::StopBits::Two));
+    let b = m.line_params(1).expect("SIO-B async");
+    assert_eq!((b.baud, b.data_bits, b.stop_bits), (9615, 8, b8_link::StopBits::Two));
+}
