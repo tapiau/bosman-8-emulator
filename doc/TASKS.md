@@ -29,7 +29,7 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
 - ✅ T3.5 Weryfikacja ekranu startowego (baner „ANG-3000”) i offsetu wierszy ❓ offset do potwierdzenia zdjęciem prawdziwego ekranu
 
 ## Faza 4 — integracja
-- ⏳ T4.1 Bosman ↔ ANG po TCP: znak zachęty `A>` na ekranie terminala
+- ✅ T4.1 Bosman ↔ ANG po TCP: znak zachęty `A>` na ekranie terminala
 - ⏳ T4.2 Uruchomienie demek z `bosman-8-ang-3000-rom/demo` (wstrzyknięcie plików na RAM-dysk)
 - ⏳ T4.3 Narzędzie do wgrywania plików na RAM-dysk / obrazy dysków
 
@@ -51,3 +51,5 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
   (`OUT 0Bh` = ROM off, `0Ah` = on — używane przez okna `ESC (`/`ESC )`), `ESC =` to wiersz-potem-kolumna (wiki ma
   odwrotnie), polskie litery w foncie pod kodami 0x01–0x0C, bit 4 portu 0x8D = stronicowanie „STOP”. Szczegóły w
   [ang3001-hardware.md](ang3001-hardware.md).
+- 2026-11-13: T4.1 — oba emulatory jako osobne procesy po TCP: baner „BOSMAN 8 / CPM/R” w ramce, `DIR` wpisane na
+  klawiaturze terminala → „Brak pliku”. Dodane README z instrukcją uruchomienia.
