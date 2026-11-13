@@ -1,4 +1,4 @@
-//! `bosman8` — command line front end of the Bosman-8 emulator.
+//! `bosman8` — front end of the Bosman-8 emulator: GUI window (feature `gui`, default) or headless CLI (`--no-gui`).
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -7,8 +7,14 @@ use std::time::{Duration, Instant};
 
 use bosman8::{disk, Bosman8, Config, CPU_HZ};
 
+#[cfg(feature = "gui")]
+mod gui;
+
 const USAGE: &str = "\
 usage: bosman8 [options]
+  --no-gui               headless (command line) mode; without it a GUI window
+                         opens and the options below pre-set its settings
+  --config PATH          GUI settings file (default: <config dir>/bosman8/gui.json)
   --rom PATH             ROM image (default roms/bosman8.bin, also next to the executable)
   --term SPEC            terminal line, SIO-A (default tcp-listen:127.0.0.1:3001)
   --aux SPEC             V.24 line, SIO-B (default none)
@@ -96,6 +102,8 @@ fn parse_args() -> Result<Args, String> {
                 let v = val()?;
                 a.max_seconds = Some(v.parse().map_err(|_| format!("invalid number '{v}'"))?)
             }
+            "--no-gui" => {}
+            "--config" => drop(val()?), // GUI only
             "-h" | "--help" => {
                 println!("{USAGE}");
                 std::process::exit(0);
@@ -256,6 +264,15 @@ fn run() -> Result<(), String> {
 }
 
 fn main() -> ExitCode {
+    let gui = !std::env::args().skip(1).any(|a| matches!(a.as_str(), "--no-gui" | "-h" | "--help"));
+    #[cfg(feature = "gui")]
+    if gui {
+        return gui::run();
+    }
+    #[cfg(not(feature = "gui"))]
+    if gui {
+        eprintln!("bosman8: built without the GUI (feature \"gui\"), running headless");
+    }
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {

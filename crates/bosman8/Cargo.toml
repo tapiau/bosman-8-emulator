@@ -3,8 +3,20 @@ name = "bosman8"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+# eframe 0.32 needs 1.85; also keeps the MSRV-aware resolver on compatible versions.
+rust-version = "1.85"
+
+[features]
+default = ["gui"]
+# Desktop GUI (default front end of the `bosman8` binary; `--no-gui` = headless CLI).
+gui = ["dep:eframe", "dep:rfd", "dep:serde", "dep:serde_json", "dep:serialport"]
 
 [dependencies]
 iz80.workspace = true
 b8-link.workspace = true
 b8-chips.workspace = true
+eframe = { version = "0.32", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"], optional = true }
+rfd = { version = "0.15", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+serialport = { version = "4", default-features = false, optional = true }

@@ -76,6 +76,12 @@ rozkłada 3 młodsze bity A na Q6, Q4, Q5. A=FF → bank domyślny z `F26B`.
   async ×16, 8N1 (WR4=4C → 1 bit stopu) → 153,8 kHz/16/10 ≈ 961 B/s
   ≈ 4160 cykli/bajt. Wysyłany BREAK (WR5 bit 4) jest przekazywany do endpointu;
   odbieranego BREAK endpointy na razie nie zgłaszają.
+- 🟢 Odbiór (T4.4): 3-bajtowe FIFO jak w Z80-SIO, nadmiar czeka w kolejce
+  hosta (bez przepełnień); po zapisie licznika 8253 danego kanału odbiornik
+  przez 3 ms nie pobiera bajtów z kolejki (`SIOB_INIT` 0x1487 wyrzuca to, co
+  przyjdzie w ciągu 2 ms po zmianie prędkości, a bajty z TCP przychodzą
+  paczkami); SIO-B gubi bajty, gdy odbiornik jest wyłączony (WR3 bit 0).
+  Szczegóły i uzasadnienie: [bosman8-interlink.md](bosman8-interlink.md).
 
 ## 8253 — porty 0x84–0x87  🟢
 Zegar 2 MHz. Licznik 0 (tryb 2, BCD, 0x9999) — timing FDC/opóźnienia,
@@ -191,6 +197,28 @@ komendą FDC. Jedynym źródłem NMI jest WD1770 INTRQ (bramkowane Q1 drugiego
 zatrzasku). Handlery zdejmują adres powrotu (`INC SP` ×2) i wracają do
 procedury, która wydała komendę. IM1 (`0x0038 → F272`) nie jest potrzebne do
 bootu ani pracy CCP — emulator nie generuje przerwań maskowalnych.
+
+## Reset  🟡 (model) / ❓ (zgodność z obserwacją)
+Obserwacja z prawdziwego sprzętu: RESET przy włączonym terminalu daje tylko
+znak zachęty `A>`, bez ramki z banerem. Baner drukuje wyłącznie pełny start ROM
+(0x0255 → … → 0x03B1, gdy suma ROM = 0 i `F437` = 5); ciepły start BIOS-u
+(`F203` → `F376`: `OUT(00); OUT(0E); JP 03DA`) wchodzi już za kodem banera
+(0x03DA → 0x03F0: sekwencja 0x023E bez banera, `JP 3E64` CCP).
+
+Model w emulatorze (`Bosman8::warm_reset`, przycisk RESET w GUI): **reset
+zeruje tylko CPU** (i WD1770, MR), RAM i oba zatrzaski 74LS259 zostają. Jeśli
+w chwili resetu w 0000 widoczny jest RAM (Q7 = 1, bank 0 — działa program z
+TPA), CPU wykonuje `JP F203` → ciepły start → sam znak zachęty (test
+`control::tests::warm_reset_in_program_gives_prompt_without_banner`).
+
+❓ Uwaga: przy samym znaku zachęty CCP CPM-R działa **z ROM-u** (zatrzask = 0x70:
+Q7 = 0, bank 7; pętla CONIN w `F3A0–F41F`), więc w tym modelu reset przy `A>`
+uruchamia pełny start z ROM-u — z banerem (sygnatura 0x55AA w 0x8800 pomija
+tylko czyszczenie bufora). Hipoteza „RESET → NMI” też nie pasuje: NMI → 0066 →
+`JP F341` → `JP 0E5D` (ostatni handler FDC) wraca do przerwanej pętli i nic nie
+drukuje (sprawdzone w emulatorze). Do wyjaśnienia na sprzęcie (w jakim stanie
+był komputer przy resecie, schemat linii RESET). Zimny start (`cold_reset`,
+„Wyłącz/włącz” w GUI) zeruje CPU, zatrzaski, SIO, 8253, WD1770 i RAM.
 
 ## Opóźnienia
 `0x2C67 DELAY`: A × (pętla `DJNZ` 244 razy) ≈ A × 1 ms przy 4 MHz — czysto

@@ -20,6 +20,7 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
 - ✅ T2.4 Boot do znaku zachęty CCP z RAM-dyskiem A: (test `crates/bosman8/tests/boot.rs`)
 - ✅ T2.5 WD1770 + obrazy dyskietek (B:, C:): 5×1024 B/ścieżkę, 200/400/800 KB wg zworek 0x98 (zob. bosman8-hardware.md)
 - ✅ T2.6 Centronics (port 0x98 OUT) → plik (`--printer`)
+- ✅ T2.7 GUI Bosmana (eframe/egui, domyślny tryb `bosman8`, `--no-gui` = konsola): RESET/zimny start, stacje B:/C: z wyborem obrazu, zworki DIP, SIO-A/SIO-B i Centronics konfigurowane w locie, ustawienia w JSON
 
 ## Faza 3 — ANG-3001
 - ✅ T3.1 Pamięć: ROM 16 KB + RAM (też pod ROM-em, porty 0x0B/0x0A), wideo 512×256 z 0x8000, scroll port 0x80, `--line-offset` (domyślnie 0)
@@ -35,7 +36,7 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
 - ✅ T4.3 Narzędzie `b8disk` (new/ls/put/get/rm) dla obrazów dyskietek 200/400/800 KB; obraz `disks/narzedzia.img`
 
 ## Faza 4b — łącze między Bosmanami
-- 🔄 T4.4 Napędy D/E/F przez SIO-B (master ↔ slave `DEBUG`): połączenie działa, odczyt katalogu jeszcze nie — zob. [bosman8-interlink.md](bosman8-interlink.md)
+- ✅ T4.4 Napędy D/E/F przez SIO-B (master ↔ slave `DEBUG`): D/E/F = A/B/C serwera, `DIR`, odczyt (`E:PIP A:=E:STAT.COM`) i zapis działają między dwoma emulatorami (TCP; test `crates/bosman8/tests/interlink.rs`); `--trace-aux`. ❓ z prawdziwym Bosmanem przez `serial:` brak przełączania 9600 → 20833 bit/s — zob. [bosman8-interlink.md](bosman8-interlink.md)
 
 ## Faza 5 — później
 - ⏳ Dźwięk (cpal) w terminalu
@@ -65,3 +66,15 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
   F8/Scroll Lock = STOP. Z ROM-u: LOCAL to osobna pętla 0x0578 bez flagi w RAM-ie, wyjście = jedno naciśnięcie BREAK;
   STOP (bit 4 portu 0x8D) to stan poziomu, nie zbocze → przełącznik/klawisz z zatrzaskiem. Rdzeń śledzi tryb po PC
   (`TermMode`), `set_local` sam wykonuje sekwencję BREAK/ESC. Testy `crates/ang3001/tests/modes.rs`.
+- 2026-11-13: T2.7 — GUI w `crates/bosman8/src/gui/` (feature `gui`, domyślnie włączona; eframe 0.32 + rfd 0.15,
+  Rust 1.85 — workspace `resolver = "3"`). Rdzeń: `src/control.rs` (`warm_reset`, `cold_reset`, `set_dip`, `eject_disk`,
+  `set_write_protect`, `drive_active`, `set_term_endpoint`/`set_aux_endpoint`, `bank`, `nmi`). Ustalenie: przy `A>`
+  CCP działa z ROM-u (zatrzask 0x70, Q7 = 0), więc „reset samego CPU” daje sam znak zachęty tylko, gdy w 0000 jest RAM
+  (program z TPA); przy `A>` — pełny start z banerem. Obserwacja ze sprzętu (sam `A>`) nadal niewyjaśniona ❓.
+- 2026-11-13: T4.4 — łącze D/E/F działa (DIR, PIP w obie strony, `DIR G:` zwalnia serwer). Protokół rozpisany z kodu:
+  rozkazy slave'a 50h–60h (rejestry adresowe FBFA/FBFC/FBFE), serwer dysków po 60h (F0 koniec, F1 nagłówek HOME/
+  SETTRK/SETSEC/SELDSK z sumą, F2 odczyt, F3 zapis 128 B), po 60h obie strony przechodzą na 8253 = 6 (20833 bit/s).
+  Przyczyna „Brak pliku”: `SIOB_INIT` (0x1487) wyrzuca bajty odebrane w 2 ms po zmianie prędkości, a bajty z TCP
+  przychodziły paczkami (`60 00 F1` naraz) → ginął F1. Poprawki: hold-off odbiornika 3 ms po zapisie licznika 8253
+  kanału, 3-bajtowe FIFO odbiorcze SIO (`b8-chips`), SIO-B gubi bajty przy wyłączonym odbiorniku. Nowa opcja
+  `--trace-aux`.

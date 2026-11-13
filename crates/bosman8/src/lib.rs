@@ -16,6 +16,7 @@ use iz80::{Cpu, Machine};
 
 pub mod disk;
 pub mod cpmfs;
+mod control;
 
 /// CPU clock.
 pub const CPU_HZ: u32 = 4_000_000;
