@@ -13,7 +13,7 @@
 //! | `none`                  | not connected; writes dropped, nothing received      |
 //! | `tcp-listen:ADDR:PORT`  | accept connections (one at a time, re-accepts after disconnect) |
 //! | `tcp:HOST:PORT[,raw]`   | connect as client, retry until the server is up, reconnect on drop |
-//! | `serial:DEV[@BAUD][,FMT]` | host serial port, e.g. `serial:/dev/ttyUSB0@9600`, `serial:COM3@115200`, `serial:/dev/ttyUSB0@100000,8N2` |
+//! | `serial:DEV[@BAUD][,FMT][,rtscts]` | host serial port, e.g. `serial:/dev/ttyUSB0@9600`, `serial:COM3@115200`, `serial:/dev/ttyUSB0@100000,8N2,rtscts` |
 //! | `stdio`                 | raw stdin/stdout (stdin in raw mode where possible)  |
 //! | `loopback`              | everything written comes back                        |
 //!
@@ -39,7 +39,12 @@
 //! * `serial` defaults to 9600 baud, 8 data bits, no parity, 1 stop bit, no
 //!   flow control; `,FMT` sets the initial character format (`8N2`, `7E1`, …).
 //!   Unless the emulator runs with `--fixed-baud`, the emulated chip
-//!   reprograms speed and format as soon as its ROM initialises it. [`Endpoint::send_break`] asserts BREAK for about 250 ms.
+//!   reprograms speed and format as soon as its ROM initialises it.
+//!   `,rtscts` turns on hardware flow control through the port's RTS and CTS
+//!   lines ([`Endpoint::set_rts`] drives RTS, [`Endpoint::cts`] reads CTS,
+//!   polled every millisecond; while CTS is off nothing is written). It is
+//!   off by default: on a cable without CTS the input reads as "off" and the
+//!   emulated computer would wait forever. [`Endpoint::send_break`] asserts BREAK for about 250 ms.
 //! * `stdio` puts the terminal into raw mode on Unix when stdin is a tty (no
 //!   echo, no line editing, no signal keys - Ctrl-C is delivered as byte 0x03)
 //!   and restores it when the endpoint is dropped. No byte translation is done
@@ -197,31 +202,9 @@ pub fn open(spec: &str) -> io::Result<Box<dyn Endpoint>> {
             }
         }
         "serial" => {
-            let a = need_arg("expected serial:DEV[@BAUD][,FORMAT]")?;
-            // Optional character format after the last comma, e.g. ",8N2".
-            let (a, format) = match a.rsplit_once(',') {
-                Some((rest, f)) => {
-                    let f = parse_format(f).ok_or_else(|| bad_spec(spec, "invalid format (expected e.g. 8N1, 8N2, 7E1)"))?;
-                    (rest, f)
-                }
-                None => (a, (8, Parity::None, StopBits::One)),
-            };
-            let (dev, baud) = match a.rsplit_once('@') {
-                Some((d, b)) => {
-                    let baud = b
-                        .parse::<u32>()
-                        .ok()
-                        .filter(|&b| b > 0)
-                        .ok_or_else(|| bad_spec(spec, "invalid baud rate"))?;
-                    (d, baud)
-                }
-                None => (a, 9600),
-            };
-            if dev.is_empty() {
-                return Err(bad_spec(spec, "missing device"));
-            }
-            let (data_bits, parity, stop_bits) = format;
-            Ok(Box::new(serial::SerialEndpoint::open(dev, LineParams { baud, data_bits, parity, stop_bits })?))
+            let a = need_arg("expected serial:DEV[@BAUD][,FORMAT][,rtscts]")?;
+            let (dev, params, rtscts) = parse_serial(a).map_err(|why| bad_spec(spec, &why))?;
+            Ok(Box::new(serial::SerialEndpoint::open(&dev, params, rtscts)?))
         }
         _ => Err(bad_spec(
             spec,
@@ -229,6 +212,34 @@ pub fn open(spec: &str) -> io::Result<Box<dyn Endpoint>> {
              tcp-listen:ADDR:PORT, tcp:HOST:PORT or serial:DEV[@BAUD])",
         )),
     }
+}
+
+/// `DEV[@BAUD][,FORMAT][,rtscts]` → device, initial line setting, RTS/CTS flag.
+fn parse_serial(a: &str) -> Result<(String, LineParams, bool), String> {
+    let mut parts = a.split(',');
+    let first = parts.next().unwrap_or_default();
+    let (mut data_bits, mut parity, mut stop_bits) = (8, Parity::None, StopBits::One);
+    let mut rtscts = false;
+    for opt in parts {
+        if opt.eq_ignore_ascii_case("rtscts") || opt.eq_ignore_ascii_case("crtscts") {
+            rtscts = true;
+        } else if let Some((d, p, s)) = parse_format(opt) {
+            (data_bits, parity, stop_bits) = (d, p, s);
+        } else {
+            return Err(format!("invalid option '{opt}' (expected a format such as 8N1, 8N2, 7E1, or rtscts)"));
+        }
+    }
+    let (dev, baud) = match first.rsplit_once('@') {
+        Some((d, b)) => {
+            let baud = b.parse::<u32>().ok().filter(|&b| b > 0).ok_or("invalid baud rate")?;
+            (d, baud)
+        }
+        None => (first, 9600),
+    };
+    if dev.is_empty() {
+        return Err("missing device".into());
+    }
+    Ok((dev.to_string(), LineParams { baud, data_bits, parity, stop_bits }, rtscts))
 }
 
 /// Character format such as `8N1`, `8N2`, `7E1` (data bits 5-8, parity N/E/O,

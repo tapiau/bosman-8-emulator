@@ -1,4 +1,11 @@
-//! Host serial port backend: `serial:DEV[@BAUD]`.
+//! Host serial port backend: `serial:DEV[@BAUD][,FORMAT][,rtscts]`.
+//!
+//! With `rtscts` a third thread polls the port's CTS input every
+//! [`LINES_POLL`] and applies RTS changes requested through
+//! [`Endpoint::set_rts`] right away (not queued behind timed bytes); the
+//! writer holds back data while CTS is off. The driver's own hardware flow
+//! control stays off: on Linux it would tie RTS to the OS receive buffer,
+//! while here RTS must follow the emulated receiver.
 
 use std::io::{self, Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -12,6 +19,8 @@ use serialport::{DataBits, FlowControl, Parity, StopBits};
 use crate::{Endpoint, LineParams, LineStatus};
 
 const READ_TIMEOUT: Duration = Duration::from_millis(20);
+/// How often the RTS/CTS thread samples CTS and applies RTS.
+const LINES_POLL: Duration = Duration::from_millis(1);
 const BREAK_LENGTH: Duration = Duration::from_millis(250);
 // USB serial tcdrain may finish when a bulk transfer reaches the adapter,
 // before its UART has shifted the final bytes. Keep a guard before changing
@@ -83,12 +92,18 @@ pub(crate) struct SerialEndpoint {
     rx: Receiver<u8>,
     ok: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
+    /// Hardware flow control through the RTS / CTS lines.
+    rtscts: bool,
+    /// RTS requested by the emulator.
+    rts: Arc<AtomicBool>,
+    /// Last sampled CTS.
+    cts: Arc<AtomicBool>,
 }
 
 impl SerialEndpoint {
     /// Open `dev` with the initial line setting `p` (the emulated chip may
     /// change it later via [`Endpoint::set_line_params`]).
-    pub(crate) fn open(dev: &str, p: LineParams) -> io::Result<SerialEndpoint> {
+    pub(crate) fn open(dev: &str, p: LineParams, rtscts: bool) -> io::Result<SerialEndpoint> {
         let baud = p.baud;
         let port = serialport::new(dev, baud)
             .data_bits(match p.data_bits {
@@ -117,6 +132,25 @@ impl SerialEndpoint {
 
         let ok = Arc::new(AtomicBool::new(true));
         let stop = Arc::new(AtomicBool::new(false));
+        let rts = Arc::new(AtomicBool::new(true));
+        let cts = Arc::new(AtomicBool::new(true));
+        if rtscts {
+            let mut lines = writer.try_clone().map_err(|e| io::Error::other(format!("{dev}: {e}")))?;
+            let (rts_l, cts_l, stop_l) = (rts.clone(), cts.clone(), stop.clone());
+            thread::Builder::new().name("serial-lines".into()).spawn(move || {
+                let mut applied: Option<bool> = None;
+                while !stop_l.load(Ordering::SeqCst) {
+                    let want = rts_l.load(Ordering::SeqCst);
+                    if applied != Some(want) && lines.write_request_to_send(want).is_ok() {
+                        applied = Some(want);
+                    }
+                    // A driver that can't report CTS must not stall the emulator.
+                    let c = lines.read_clear_to_send().unwrap_or(true);
+                    cts_l.store(c, Ordering::SeqCst);
+                    thread::sleep(LINES_POLL);
+                }
+            })?;
+        }
         let (tx, tx_rx) = mpsc::channel::<TxMsg>();
         let (rx_tx, rx) = mpsc::channel::<u8>();
 
@@ -149,6 +183,13 @@ impl SerialEndpoint {
         let line = Arc::new(Mutex::new(p.to_string()));
         let line_w = line.clone();
         let ok_w = ok.clone();
+        let (cts_w, stop_w) = (cts.clone(), stop.clone());
+        // Hold data while the peer's RTS (our CTS) is off.
+        let wait_cts = move || {
+            while rtscts && !cts_w.load(Ordering::SeqCst) && !stop_w.load(Ordering::SeqCst) {
+                thread::sleep(LINES_POLL);
+            }
+        };
         thread::Builder::new().name("serial-writer".into()).spawn(move || {
             let mut out = Vec::with_capacity(256);
             // Mapping of emulated time to wall time for timed bytes.
@@ -177,6 +218,7 @@ impl SerialEndpoint {
                             }
                         }
                     }
+                    wait_cts();
                     if writer.write_all(&out).is_err() || writer.flush().is_err() {
                         ok_w.store(false, Ordering::SeqCst);
                     }
@@ -211,6 +253,7 @@ impl SerialEndpoint {
                     }
                 }
                 if !out.is_empty() {
+                    wait_cts();
                     if writer.write_all(&out).is_err() || writer.flush().is_err() {
                         ok_w.store(false, Ordering::SeqCst);
                     }
@@ -251,7 +294,7 @@ impl SerialEndpoint {
             }
         })?;
 
-        Ok(SerialEndpoint { dev: dev.to_string(), line, tx, rx, ok, stop })
+        Ok(SerialEndpoint { dev: dev.to_string(), line, tx, rx, ok, stop, rtscts, rts, cts })
     }
 }
 
@@ -280,13 +323,26 @@ impl Endpoint for SerialEndpoint {
     fn set_line_params_at(&mut self, params: LineParams, t: f64) {
         let _ = self.tx.send(TxMsg::Params(params, Some(t)));
     }
+    fn set_rts(&mut self, ready: bool) {
+        if self.rtscts {
+            self.rts.store(ready, Ordering::SeqCst);
+        }
+    }
+    fn cts(&self) -> bool {
+        !self.rtscts || self.cts.load(Ordering::SeqCst)
+    }
     fn status(&self) -> LineStatus {
         LineStatus { connected: self.ok.load(Ordering::SeqCst) }
     }
     fn describe(&self) -> String {
         let state = if self.ok.load(Ordering::SeqCst) { "open" } else { "error" };
         let line = self.line.lock().map(|l| l.clone()).unwrap_or_default();
-        format!("serial {} @ {line} ({state})", self.dev)
+        let fc = match (self.rtscts, self.cts.load(Ordering::SeqCst)) {
+            (false, _) => "",
+            (true, true) => ", RTS/CTS",
+            (true, false) => ", RTS/CTS: CTS off",
+        };
+        format!("serial {} @ {line}{fc} ({state})", self.dev)
     }
 }
 

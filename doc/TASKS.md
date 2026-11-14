@@ -36,7 +36,7 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
 - ⏳ T4.2 Uruchomienie demek z `bosman-8-ang-3000-rom/demo` (wstrzyknięcie plików na RAM-dysk)
 - ✅ T4.3 Narzędzie `b8disk` (new/ls/put/get/rm) dla obrazów dyskietek 200/400/800 KB; obraz `disks/narzedzia.img`
 - ✅ T4.6 Obrazy Gotka `.hfe` (HxC v1) bezpośrednio w `--disk-b/c`, GUI i `b8disk`; zapis w miejscu (tylko pola danych zmienionych sektorów)
-- ✅ T4.8 Sterowanie przepływem RTS/CTS: SIO-A z Auto Enables, terminal wyłącza RTS przy zaległości; TCP między emulatorami przez podzbiór RFC 2217 (`,raw` wyłącza) ⏳ `serial:` — CTS z linii portu hosta (Bosman ↔ prawdziwy terminal) i RTS na porcie (ANG ↔ prawdziwy Bosman)
+- ✅ T4.8 Sterowanie przepływem RTS/CTS: SIO-A z Auto Enables, terminal wyłącza RTS przy zaległości; TCP między emulatorami przez podzbiór RFC 2217 (`,raw` wyłącza); `serial:…,rtscts` — linie RTS/CTS portu hosta (Bosman ↔ prawdziwy terminal, ANG ↔ prawdziwy Bosman)
 - ✅ T4.7 ROM terminala ANG-3001 90.09.11 (`--rom roms/ang3001/ANG-3001_90.09.11.BIN`): profile ROM-ów, DSR 8251 nieaktywny; gry z dyskietki GRY (SOKOBAN) rysują grafikę
 
 ## Faza 4b — łącze między Bosmanami
@@ -133,3 +133,10 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
   wskazują go jawnie). Bosman — CPM-R 32 KB, teraz także wbudowany (`bosman8::DEFAULT_ROM`), gdy pliku nie ma obok
   (wcześniej uruchomienie spoza repo kończyło się błędem); obrazy ZJ 16 KB tylko przez `--rom`. `.deb`: dowiązania
   `roms/ang3001.bin` i `roms/ang3001/ang3001.bin` prowadzą do domyślnego 90.09.11.
+- 2026-11-14: T4.8 cz. 2 — RTS/CTS na porcie szeregowym: `serial:DEV@BAUD[,FMT],rtscts` (w GUI Bosmana checkbox
+  „RTS/CTS” i lista formatu). Wątek `serial-lines` co 1 ms czyta CTS (`read_clear_to_send`) i od razu ustawia RTS
+  (`write_request_to_send`); wątek piszący przy wyłączonym CTS wstrzymuje dane. Domyślnie wyłączone (kabel bez CTS
+  = wieczne czekanie). Sprawdzone na PL2303 (`/dev/ttyUSB0`): port otwiera się jako `100000 8N2, RTS/CTS`, linia
+  CTS od strony kabla aktywna; samo przełączanie RTS widać dopiero po drugiej stronie kabla (port jest otwierany na
+  wyłączność) — ❓ do sprawdzenia z prawdziwym Bosmanem/terminalem. Przy okazji: GUI Bosmana błędnie przejmowało
+  specyfikację z opcjami po przecinku (`@100000,8N2` → wszystko w nazwie urządzenia).

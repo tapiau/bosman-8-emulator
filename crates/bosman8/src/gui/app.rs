@@ -286,10 +286,28 @@ impl App {
                                 ui.selectable_value(&mut cfg.baud, b, b.to_string());
                             }
                         });
+                    egui::ComboBox::from_id_salt(("format", aux))
+                        .width(50.0)
+                        .selected_text(cfg.format.clone())
+                        .show_ui(ui, |ui| {
+                            for f in ["8N1", "8N2", "8E1", "8O1", "7E1", "7O1"] {
+                                ui.selectable_value(&mut cfg.format, f.to_string(), f);
+                            }
+                        })
+                        .response
+                        .on_hover_text(
+                            "Format znaku przy otwarciu portu; bez --fixed-baud ROM i tak go przestawia \
+                             (łącze z terminalem: 8N2)",
+                        );
+                    ui.checkbox(&mut cfg.rtscts, "RTS/CTS").on_hover_text(
+                        "Sprzętowe sterowanie przepływem liniami RTS/CTS portu: drugie urządzenie \
+                         wstrzymuje nadawanie (terminal → SIO-A z Auto Enables). Tylko z kablem, \
+                         który ma linię CTS — bez niej emulator czekałby w nieskończoność.",
+                    );
                 }
                 LinkKind::Spec => {
                     ui.add(egui::TextEdit::singleline(&mut cfg.spec).desired_width(200.0))
-                        .on_hover_text("none | loopback | stdio | tcp-listen:ADDR:PORT | tcp:HOST:PORT[,raw] | serial:DEV@BAUD[,8N2]");
+                        .on_hover_text("none | loopback | stdio | tcp-listen:ADDR:PORT | tcp:HOST:PORT[,raw] | serial:DEV@BAUD[,8N2][,rtscts]");
                 }
             }
             if ui.button("Zastosuj").on_hover_text(cfg.spec()).clicked() {
@@ -351,7 +369,7 @@ impl App {
                     }
                     PrinterKind::Link => {
                         ui.add(egui::TextEdit::singleline(&mut p.link).desired_width(220.0))
-                            .on_hover_text("tcp:HOST:PORT[,raw] | tcp-listen:ADDR:PORT | serial:DEV@BAUD[,8N2]");
+                            .on_hover_text("tcp:HOST:PORT[,raw] | tcp-listen:ADDR:PORT | serial:DEV@BAUD[,8N2][,rtscts]");
                     }
                     PrinterKind::Device => {
                         ui.add(egui::TextEdit::singleline(&mut p.device).desired_width(160.0))

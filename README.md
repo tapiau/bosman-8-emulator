@@ -76,6 +76,10 @@ terminal, który nie nadąża rysować, wstrzymuje Bosmana — jak na prawdziwym
 pracuje z Auto Enables). Bez tego gry rysujące dużo grafiki (np. SOKOBAN) reagowały na klawisze
 z opóźnieniem dziesiątek sekund. Zwykły klient TCP (`nc`, program terminalowy) dalej dostaje
 surowy strumień bajtów; `tcp:HOST:PORT,raw` łączy bez protokołu (np. z `ser2net` w trybie raw).
+Na porcie szeregowym RTS/CTS włącza `,rtscts` (np. `serial:/dev/ttyUSB0@100000,8N2,rtscts`, w GUI
+Bosmana checkbox „RTS/CTS”): emulowany terminal steruje linią RTS portu, a emulowany Bosman czyta
+CTS i wstrzymuje nadawanie. Tylko z kablem, który ma linię CTS — na kablu 3-żyłowym niepodłączone
+wejście CTS czyta się jako „stop” i emulator czekałby w nieskończoność, dlatego domyślnie wyłączone.
 
 Klawisze terminala: F12 (trzymany) = BREAK, F11 = reset, F10 = CAPS, F9 = turbo,
 F8 / Scroll Lock = STOP (stronicowanie), F7 = LOCAL wł./wył. Strzałki domyślnie wysyłają
@@ -117,8 +121,8 @@ Bosmanów z ROM-ami UNIMOR ZJ, z [instrukcją instalacji](tools/bsrv/README.md).
 Publikacja wydania:
 
 ```sh
-git tag v0.4.2
-git push origin v0.4.2     # → workflow buduje paczki i tworzy Release na GitHubie
+git tag v0.4.3
+git push origin v0.4.3     # → workflow buduje paczki i tworzy Release na GitHubie
 ```
 
 Bez taga: zakładka Actions → Release → „Run workflow” buduje paczki jako

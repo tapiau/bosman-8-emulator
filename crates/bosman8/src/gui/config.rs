@@ -27,6 +27,10 @@ pub struct LinkCfg {
     pub connect: String,
     pub serial_dev: String,
     pub baud: u32,
+    /// Character format of the serial port, e.g. `8N1`, `8N2`.
+    pub format: String,
+    /// Hardware flow control through the port's RTS / CTS lines.
+    pub rtscts: bool,
     pub spec: String,
 }
 
@@ -38,6 +42,8 @@ impl Default for LinkCfg {
             connect: "127.0.0.1:3002".into(),
             serial_dev: String::new(),
             baud: 9600,
+            format: "8N1".into(),
+            rtscts: false,
             spec: "loopback".into(),
         }
     }
@@ -50,7 +56,17 @@ impl LinkCfg {
             LinkKind::None => "none".into(),
             LinkKind::TcpListen => format!("tcp-listen:{}", self.listen.trim()),
             LinkKind::TcpConnect => format!("tcp:{}", self.connect.trim()),
-            LinkKind::Serial => format!("serial:{}@{}", self.serial_dev.trim(), self.baud),
+            LinkKind::Serial => {
+                let mut s = format!("serial:{}@{}", self.serial_dev.trim(), self.baud);
+                let f = self.format.trim();
+                if !f.is_empty() && !f.eq_ignore_ascii_case("8N1") {
+                    s += &format!(",{}", f.to_ascii_uppercase());
+                }
+                if self.rtscts {
+                    s += ",rtscts";
+                }
+                s
+            }
             LinkKind::Spec => self.spec.trim().to_string(),
         }
     }
@@ -71,12 +87,24 @@ impl LinkCfg {
             }
             "serial" => {
                 self.kind = LinkKind::Serial;
-                match arg.rsplit_once('@') {
+                // DEV[@BAUD][,FORMAT][,rtscts]
+                let mut parts = arg.split(',');
+                let first = parts.next().unwrap_or_default();
+                self.format = "8N1".into();
+                self.rtscts = false;
+                for opt in parts {
+                    if opt.eq_ignore_ascii_case("rtscts") || opt.eq_ignore_ascii_case("crtscts") {
+                        self.rtscts = true;
+                    } else {
+                        self.format = opt.to_ascii_uppercase();
+                    }
+                }
+                match first.rsplit_once('@') {
                     Some((d, b)) if b.parse::<u32>().is_ok() => {
                         self.serial_dev = d.into();
                         self.baud = b.parse().unwrap_or(9600);
                     }
-                    _ => self.serial_dev = arg.into(),
+                    _ => self.serial_dev = first.into(),
                 }
             }
             _ => {
@@ -199,12 +227,24 @@ mod tests {
     #[test]
     fn spec_roundtrip() {
         let mut l = LinkCfg::default();
-        for s in ["none", "tcp-listen:127.0.0.1:3001", "tcp:host:23", "serial:/dev/ttyUSB0@19200", "loopback"] {
+        for s in [
+            "none",
+            "tcp-listen:127.0.0.1:3001",
+            "tcp:host:23",
+            "tcp:host:23,raw",
+            "serial:/dev/ttyUSB0@19200",
+            "serial:/dev/ttyUSB0@100000,8N2",
+            "serial:/dev/ttyUSB0@100000,8N2,rtscts",
+            "serial:COM4@9600,rtscts",
+            "loopback",
+        ] {
             l.set_spec(s);
             assert_eq!(l.spec(), s);
         }
         l.set_spec("serial:COM3");
-        assert_eq!(l.spec(), "serial:COM3@19200");
+        assert_eq!(l.spec(), "serial:COM3@9600", "options reset, baud kept");
+        l.set_spec("serial:/dev/ttyUSB0@100000,8n2");
+        assert_eq!((l.serial_dev.as_str(), l.baud, l.format.as_str()), ("/dev/ttyUSB0", 100000, "8N2"));
     }
 
     #[test]

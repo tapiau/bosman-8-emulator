@@ -226,7 +226,21 @@ fn serial_format_parsing() {
     for bad in ["", "8N", "9N1", "8X1", "8N3", "8N1x"] {
         assert_eq!(parse_format(bad), None, "{bad}");
     }
-    // A bad format is reported before the device is touched.
+    // A bad option is reported before the device is touched.
     let e = open("serial:/nonexistent@100000,8Q2").err().unwrap();
-    assert!(e.to_string().contains("invalid format"), "{e}");
+    assert!(e.to_string().contains("invalid option"), "{e}");
+}
+
+#[test]
+fn serial_spec_options() {
+    let p = |a: &str| parse_serial(a).unwrap();
+    let (dev, lp, fc) = p("/dev/ttyUSB0@100000,8N2,rtscts");
+    assert_eq!((dev.as_str(), lp.baud, lp.data_bits, lp.stop_bits, fc), ("/dev/ttyUSB0", 100000, 8, StopBits::Two, true));
+    let (dev, lp, fc) = p("COM3");
+    assert_eq!((dev.as_str(), lp.baud, lp.stop_bits, fc), ("COM3", 9600, StopBits::One, false));
+    assert!(p("/dev/ttyS0@9600,RTSCTS").2);
+    assert_eq!(p("/dev/ttyS0,7E1").1.parity, Parity::Even);
+    assert!(parse_serial("@9600").is_err());
+    assert!(parse_serial("/dev/x@0").is_err());
+    assert!(parse_serial("/dev/x@9600,xon").is_err());
 }

@@ -21,9 +21,11 @@ usage: bosman8 [options]
   --term SPEC            terminal line, SIO-A (default tcp-listen:127.0.0.1:3001)
   --aux SPEC             V.24 line, SIO-B (default none)
                          SPEC: none | loopback | stdio | tcp-listen:ADDR:PORT |
-                               tcp:HOST:PORT[,raw] | serial:DEV[@BAUD][,8N2]
+                               tcp:HOST:PORT[,raw] | serial:DEV[@BAUD][,8N2][,rtscts]
                          (TCP between the emulators carries RTS/CTS: the
-                         terminal paces SIO-A; ,raw = plain byte stream)
+                         terminal paces SIO-A; ,raw = plain byte stream;
+                         serial ,rtscts = use the port's RTS/CTS lines, only
+                         with a cable that has CTS)
   --dip HEX              jumper bits of port 0x98 (bits 1,3,5,6 used; default 40,
                          00 when --disk-c is given). Bits 3/5 select the floppy
                          format: 00 = B:200K C:200K, 08 = 400K/400K,

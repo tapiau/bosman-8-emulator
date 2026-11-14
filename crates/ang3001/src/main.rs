@@ -53,8 +53,9 @@ OPTIONS:
                       roms/ang3001/ANG3001_ZJ_wersjaPG.BIN)
   --link SPEC         serial line endpoint (default: tcp:127.0.0.1:3001)
                       none | loopback | stdio | tcp:HOST:PORT[,raw] | tcp-listen:ADDR:PORT
-                      | serial:DEV[@BAUD][,8N2]; over TCP the terminal sends RTS (stop
-                      when it can't keep up) via RFC 2217, ,raw = without it
+                      | serial:DEV[@BAUD][,8N2][,rtscts]; the terminal drops RTS when
+                      it can't keep up: over TCP via RFC 2217 (,raw = without it),
+                      on a serial port with ,rtscts on the port's RTS line
   --cpu-mhz F         CPU clock in MHz (default 6)
   --pit-mhz F         8253 input clock in MHz (default 1.3)
   --char-cycles N     fixed serial character time in CPU cycles

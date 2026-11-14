@@ -54,7 +54,13 @@ synchronicznego itp.). Każdy kanał emulowanego układu (SIO-A, SIO-B, 8251):
   otwiera połączenie `IAC WILL COM-PORT-OPTION`, serwer `tcp-listen:` włącza
   Telnet tylko dla połączenia zaczętego dokładnie tak; RTS klienta jako
   `SET-CONTROL` 11/12, RTS serwera jako bit CTS `NOTIFY-MODEMSTATE`; `,raw`
-  wyłącza); `serial:` — jeszcze nie (linie RTS/CTS portu hosta, T4.8).
+  wyłącza); `serial:` — linie RTS/CTS portu hosta po dopisaniu `,rtscts`
+  (osobny wątek co 1 ms czyta CTS i od razu ustawia RTS; przy wyłączonym CTS
+  wątek piszący wstrzymuje bajty — także te już wyprodukowane z wyprzedzeniem,
+  bo prawdziwy terminal ma tylko bufor 8251; sterowanie przepływem w sterowniku
+  zostaje wyłączone, bo w Linuksie wiązałoby RTS z buforem jądra, a RTS ma
+  odzwierciedlać emulowany odbiornik). Domyślnie wyłączone: na kablu bez CTS
+  wejście czyta się jako „stop”.
 
 Oryginalnie Bosman ↔ ANG pracują **asynchronicznie, 100 000 bit/s 8N2**
 (SIO-A WR4=0Ch, 8251 tryb CDh; wcześniej błędnie opisywane jako tryb
