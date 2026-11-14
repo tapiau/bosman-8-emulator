@@ -24,6 +24,10 @@ mod control;
 pub const CPU_HZ: u32 = 4_000_000;
 /// 8253 input clock.
 pub const PIT_HZ: u32 = 2_000_000;
+/// Built-in ROM: CPM-R v2.5 (SAJ), 32 KB (`roms/bosman8/bosman8.bin`), used
+/// when no ROM file is found. The 16 KB UNIMOR ZJ images in `roms/bosman8/`
+/// are only used when chosen explicitly.
+pub const DEFAULT_ROM: &[u8] = include_bytes!("../../../roms/bosman8/bosman8.bin");
 /// Size of the EPROM as dumped (27256). A 64 KB image (27512) is accepted
 /// too: latch Q0 then selects its upper half (see `Bus::peek`).
 pub const ROM_SIZE: usize = 0x8000;
@@ -535,6 +539,9 @@ impl Bosman8 {
         let mut dropped = Vec::new();
         for (i, (ch, ep)) in chans.into_iter().enumerate() {
             let aux = i == 1 && self.trace_aux;
+            // Peer's RTS → our CTS. SIO-A runs with Auto Enables (WR3 = E1h),
+            // so the terminal paces the computer; SIO-B ignores CTS (WR3 = C1h).
+            ch.set_cts(ep.cts());
             // Bytes carry their emulated time so a host serial port can keep
             // their spacing on the wire (the emulator runs in time slices).
             let now = self.cycles as f64 / CPU_HZ as f64;

@@ -68,6 +68,9 @@ pub struct SioChannel {
     // Break
     break_remaining: u32,
     break_latched: bool,
+    /// CTS input (asserted = true). With Auto Enables (WR3 bit 5) the
+    /// transmitter starts a character only while CTS is asserted.
+    cts: bool,
 }
 
 impl Default for SioChannel {
@@ -93,6 +96,7 @@ impl SioChannel {
             tx_out: VecDeque::new(),
             break_remaining: 0,
             break_latched: false,
+            cts: true,
         }
     }
 
@@ -145,7 +149,10 @@ impl SioChannel {
     }
 
     fn rr0(&self) -> u8 {
-        let mut v = 0x08 | 0x20; // DCD, CTS asserted
+        let mut v = 0x08; // DCD asserted
+        if self.cts {
+            v |= 0x20;
+        }
         if !self.rx_fifo.is_empty() {
             v |= 0x01;
         }
@@ -261,8 +268,25 @@ impl SioChannel {
         self.rx_queue.len()
     }
 
+    /// Drive the CTS input. With Auto Enables (WR3 bit 5) a deasserted CTS
+    /// holds the next character in the Tx buffer (a character already being
+    /// shifted out finishes); asserting it again starts the transmitter.
+    pub fn set_cts(&mut self, on: bool) {
+        self.cts = on;
+        self.start_tx();
+    }
+
+    pub fn cts(&self) -> bool {
+        self.cts
+    }
+
+    /// WR3 bit 5: CTS gates the transmitter, DCD the receiver (the latter is not modelled).
+    pub fn auto_enables(&self) -> bool {
+        self.wr[3] & 0x20 != 0
+    }
+
     fn start_tx(&mut self) {
-        if self.tx_shift.is_none() && self.tx_enabled() {
+        if self.tx_shift.is_none() && self.tx_enabled() && (self.cts || !self.auto_enables()) {
             if let Some(b) = self.tx_buf.take() {
                 self.tx_shift = Some(b);
                 self.tx_remaining = self.char_cycles;
@@ -438,6 +462,45 @@ mod tests {
         assert_eq!(ch.take_tx(), Some(1));
         assert_eq!(ch.take_tx(), Some(2));
         assert!(ch.all_sent());
+    }
+
+    #[test]
+    fn auto_enables_cts_gates_transmitter() {
+        let mut ch = SioChannel::new();
+        init(&mut ch, 0xE1, 0x0C, 0xE8); // Bosman SIO-A: WR3 = E1h (Auto Enables)
+        ch.set_char_cycles(100);
+        assert!(ch.auto_enables());
+        ch.set_cts(false);
+        assert_eq!(ch.read_ctrl() & 0x20, 0, "RR0 bit 5 = CTS");
+        ch.write_data(1);
+        ch.tick(1000);
+        assert_eq!(ch.take_tx(), None, "held while CTS is off");
+        assert!(!ch.all_sent());
+        ch.set_cts(true);
+        assert_eq!(ch.read_ctrl() & 0x20, 0x20);
+        ch.tick(100);
+        assert_eq!(ch.take_tx(), Some(1));
+        // A character already shifting out finishes; the next one waits.
+        ch.write_data(2);
+        ch.write_data(3);
+        ch.set_cts(false);
+        ch.tick(1000);
+        assert_eq!(ch.take_tx(), Some(2));
+        assert_eq!(ch.take_tx(), None);
+        ch.set_cts(true);
+        ch.tick(100);
+        assert_eq!(ch.take_tx(), Some(3));
+    }
+
+    #[test]
+    fn cts_ignored_without_auto_enables() {
+        let mut ch = SioChannel::new();
+        init(&mut ch, 0xC1, 0x44, 0x68);
+        ch.set_char_cycles(10);
+        ch.set_cts(false);
+        ch.write_data(7);
+        ch.tick(10);
+        assert_eq!(ch.take_tx(), Some(7));
     }
 
     #[test]

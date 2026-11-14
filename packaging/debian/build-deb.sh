@@ -39,10 +39,13 @@ for m in roms/*/; do
   install -d "$D/usr/share/$PKG/roms/$m"
   install -m 644 roms/$m/* "$D/usr/share/$PKG/roms/$m/"
 done
-# Old flat paths: /etc/bosman-8-emulator.conf is a conffile, so configs from
-# versions before 0.4.1 may still point at roms/bosman8.bin / roms/ang3001.bin.
+# Old paths: /etc/bosman-8-emulator.conf is a conffile, so edited configs from
+# earlier versions may still point at roms/bosman8.bin, roms/ang3001.bin (before
+# 0.4.1) or roms/ang3001/ang3001.bin (0.4.1). They meant "the default ROM", so
+# the terminal ones lead to the current default, ROM 90.09.11.
 ln -s bosman8/bosman8.bin "$D/usr/share/$PKG/roms/bosman8.bin"
-ln -s ang3001/ang3001.bin "$D/usr/share/$PKG/roms/ang3001.bin"
+ln -s ang3001/ANG-3001_90.09.11.BIN "$D/usr/share/$PKG/roms/ang3001.bin"
+ln -s ANG-3001_90.09.11.BIN "$D/usr/share/$PKG/roms/ang3001/ang3001.bin"
 install -m 644 disks/* "$D/usr/share/$PKG/disks/"
 install -m 644 README.md "$D/usr/share/doc/$PKG/"
 install -m 644 doc/*.md "$D/usr/share/doc/$PKG/doc/"

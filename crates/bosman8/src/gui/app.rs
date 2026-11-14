@@ -289,7 +289,7 @@ impl App {
                 }
                 LinkKind::Spec => {
                     ui.add(egui::TextEdit::singleline(&mut cfg.spec).desired_width(200.0))
-                        .on_hover_text("none | loopback | stdio | tcp-listen:ADDR:PORT | tcp:HOST:PORT | serial:DEV@BAUD");
+                        .on_hover_text("none | loopback | stdio | tcp-listen:ADDR:PORT | tcp:HOST:PORT[,raw] | serial:DEV@BAUD[,8N2]");
                 }
             }
             if ui.button("Zastosuj").on_hover_text(cfg.spec()).clicked() {
@@ -351,7 +351,7 @@ impl App {
                     }
                     PrinterKind::Link => {
                         ui.add(egui::TextEdit::singleline(&mut p.link).desired_width(220.0))
-                            .on_hover_text("tcp:HOST:PORT | tcp-listen:ADDR:PORT | serial:DEV@BAUD");
+                            .on_hover_text("tcp:HOST:PORT[,raw] | tcp-listen:ADDR:PORT | serial:DEV@BAUD[,8N2]");
                     }
                     PrinterKind::Device => {
                         ui.add(egui::TextEdit::singleline(&mut p.device).desired_width(160.0))

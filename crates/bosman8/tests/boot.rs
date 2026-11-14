@@ -135,3 +135,20 @@ fn serial_line_params_after_boot() {
     let b = m.line_params(1).expect("SIO-B async");
     assert_eq!((b.baud, b.data_bits, b.stop_bits), (9615, 8, b8_link::StopBits::Two));
 }
+
+/// The ROM runs SIO-A with Auto Enables: while the terminal's RTS (our CTS)
+/// is off, nothing is sent and CONOUT waits; output resumes when it is on.
+#[test]
+fn terminal_rts_paces_output() {
+    let (mut m, mut host) = machine();
+    host.set_rts(false);
+    m.run_cycles(3 * CPU_HZ as u64);
+    let mut held = Vec::new();
+    while let Some(b) = host.read() {
+        held.push(b);
+    }
+    assert!(held.len() <= 1, "sent while CTS off: {:?}", printable(&held));
+    host.set_rts(true);
+    let mut out = held;
+    assert!(run_until(&mut m, &mut host, &mut out, b"A>", 5.0), "{}", printable(&out));
+}

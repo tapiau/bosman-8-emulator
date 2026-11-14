@@ -93,11 +93,31 @@ impl Endpoint for Tap {
         }
         self.inner.write(byte);
     }
+    fn write_at(&mut self, byte: u8, t: f64) {
+        if let Ok(mut b) = self.buf.lock() {
+            if b.len() < MONITOR_CAP {
+                b.push(byte);
+            }
+        }
+        self.inner.write_at(byte, t);
+    }
     fn read(&mut self) -> Option<u8> {
         self.inner.read()
     }
     fn send_break(&mut self) {
         self.inner.send_break()
+    }
+    fn set_line_params(&mut self, p: b8_link::LineParams) {
+        self.inner.set_line_params(p)
+    }
+    fn set_line_params_at(&mut self, p: b8_link::LineParams, t: f64) {
+        self.inner.set_line_params_at(p, t)
+    }
+    fn set_rts(&mut self, ready: bool) {
+        self.inner.set_rts(ready)
+    }
+    fn cts(&self) -> bool {
+        self.inner.cts()
     }
     fn status(&self) -> LineStatus {
         self.inner.status()

@@ -42,7 +42,19 @@ synchronicznego itp.). Każdy kanał emulowanego układu (SIO-A, SIO-B, 8251):
 - bajty przychodzące trafiają do kolejki po stronie hosta; do rejestru
   odbiorczego wpada następny bajt dopiero gdy poprzedni został odczytany i minął
   czas znaku — dzięki temu nie ma przepełnień, których na prawdziwym sprzęcie
-  pilnowałby protokół.
+  pilnowałby protokół,
+- **sterowanie przepływem RTS/CTS** (`Endpoint::set_rts` / `Endpoint::cts`):
+  terminal (8251) wyłącza RTS, gdy w kolejce odbiorczej czeka ≥ 32 bajty, i
+  włącza przy ≤ 8; Bosman podaje `cts()` łącza na wejście CTS kanałów SIO.
+  SIO-A pracuje z Auto Enables (WR3 = E1h), więc przy wyłączonym CTS trzyma
+  znak, a BIOS CONOUT czeka — program zwalnia do tempa terminala. Bez tego
+  kolejka hosta rosła bez końca (SOKOBAN: Bosman ~6400 B/s, terminal ~2200 B/s
+  → po 30 s ~80 KB zaległości i tyle sekund opóźnienia klawiszy). Przenoszenie
+  stanu linii: para w pamięci — flagi; TCP — podzbiór RFC 2217 (klient `tcp:`
+  otwiera połączenie `IAC WILL COM-PORT-OPTION`, serwer `tcp-listen:` włącza
+  Telnet tylko dla połączenia zaczętego dokładnie tak; RTS klienta jako
+  `SET-CONTROL` 11/12, RTS serwera jako bit CTS `NOTIFY-MODEMSTATE`; `,raw`
+  wyłącza); `serial:` — jeszcze nie (linie RTS/CTS portu hosta, T4.8).
 
 Oryginalnie Bosman ↔ ANG pracują **asynchronicznie, 100 000 bit/s 8N2**
 (SIO-A WR4=0Ch, 8251 tryb CDh; wcześniej błędnie opisywane jako tryb

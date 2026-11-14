@@ -1,7 +1,8 @@
 # ANG-3001 — sprzęt z punktu widzenia emulatora
 
 Źródło: `../bosman-8-ang-3000-rom` (ROM `ANG3001_ZJ_wersjaPG.BIN`, 16 KB,
-dokumentacja w `doc/`, demka w `demo/`).
+dokumentacja w `doc/`, demka w `demo/`). Opis poniżej powstał na tym ROM-ie;
+od 0.4.2 domyślnym ROM-em emulatora jest 90.09.11 (różnice — sekcja na końcu).
 
 ## CPU i pamięć
 - Z80B (zegar nieznany; przyjmujemy 6 MHz, konfigurowalne).
@@ -68,6 +69,15 @@ znaków/s (emulator liczy czas znaku z tych rejestrów, `--char-cycles`
 nadpisuje). Pierwszy bajt odebrany w trakcie startu jest odrzucany
 (`IN A,(90h)` tuż przed `MAIN_LOOP`) — emulator wstrzymuje dane z łącza do
 osiągnięcia `MAIN_LOOP` (0x04BD).
+
+**Sterowanie przepływem w emulatorze** 🟡: emulowany terminal wyłącza RTS
+łącza (`Endpoint::set_rts`), gdy w kolejce odbiorczej 8251 czeka ≥ 32 bajty,
+i włącza przy ≤ 8 — Bosman (SIO-A z Auto Enables) wstrzymuje wtedy nadawanie.
+To model zachowania, nie znanego układu: ROM nie zmienia bitów RTS/DTR komendy
+8251, więc na prawdziwej płycie CTS Bosmana steruje pewnie sprzęt (hipoteza:
+wyjście RxRDY 8251 = „bajt czeka na odczyt”). Skutek ten sam: komputer nadaje
+w tempie, w jakim terminal przetwarza dane (także w LOCAL i STOP, gdy terminal
+nie czyta łącza, Bosman czeka zamiast zapełniać bufor).
 
 ## Timer 8253 — porty 0x88–0x8B  🟢
 Licznik 0 — czas trwania dźwięku (tryb 0, odczytywany do zera w
@@ -165,7 +175,7 @@ planszę; na ROM-ie „ZJ wersja PG” wypisuje zamiast grafiki ciąg liczb).
 Emulator rozpoznaje ROM po bajtach pętli głównej (`RomProfile::detect`) i
 bierze z profilu adresy pętli, po których śledzi tryb:
 
-| | ZJ wersja PG (domyślny) | 90.09.11 |
+| | ZJ wersja PG | 90.09.11 (domyślny od 0.4.2) |
 |---|---|---|
 | pętla główna (koniec startu) | 0x04BD | 0x05CF |
 | zachęta BREAK | 0x0533 | — (brak) |

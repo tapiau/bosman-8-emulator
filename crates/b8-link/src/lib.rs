@@ -12,8 +12,8 @@
 //! |-------------------------|------------------------------------------------------|
 //! | `none`                  | not connected; writes dropped, nothing received      |
 //! | `tcp-listen:ADDR:PORT`  | accept connections (one at a time, re-accepts after disconnect) |
-//! | `tcp:HOST:PORT`         | connect as client, retry until the server is up, reconnect on drop |
-//! | `serial:DEV[@BAUD]`     | host serial port, e.g. `serial:/dev/ttyUSB0@9600`, `serial:COM3@115200` |
+//! | `tcp:HOST:PORT[,raw]`   | connect as client, retry until the server is up, reconnect on drop |
+//! | `serial:DEV[@BAUD][,FMT]` | host serial port, e.g. `serial:/dev/ttyUSB0@9600`, `serial:COM3@115200`, `serial:/dev/ttyUSB0@100000,8N2` |
 //! | `stdio`                 | raw stdin/stdout (stdin in raw mode where possible)  |
 //! | `loopback`              | everything written comes back                        |
 //!
@@ -27,8 +27,19 @@
 //!   and by [`TcpListenEndpoint::local_addr`]. `TCP_NODELAY` is set.
 //! * `tcp` connects in the background, retrying every 500 ms, and reconnects
 //!   after the connection drops. Bytes written while disconnected are dropped.
+//! * Flow control over TCP ([`Endpoint::set_rts`] / [`Endpoint::cts`]): a
+//!   subset of RFC 2217 (Telnet COM Port Control). The client (`tcp:`) opens
+//!   every connection with `IAC WILL COM-PORT-OPTION`; a `tcp-listen` server
+//!   switches to Telnet framing only when a connection starts with exactly
+//!   that, so raw clients (`nc`, terminal programs) are unaffected. Then
+//!   0xFF data bytes are doubled, the client sends its RTS as `SET-CONTROL`
+//!   (RTS ON / OFF) and the server sends its RTS as the CTS bit of
+//!   `NOTIFY-MODEMSTATE`. `tcp:HOST:PORT,raw` connects without the protocol
+//!   (for raw TCP servers such as `ser2net` in raw mode).
 //! * `serial` defaults to 9600 baud, 8 data bits, no parity, 1 stop bit, no
-//!   flow control. [`Endpoint::send_break`] asserts BREAK for about 250 ms.
+//!   flow control; `,FMT` sets the initial character format (`8N2`, `7E1`, …).
+//!   Unless the emulator runs with `--fixed-baud`, the emulated chip
+//!   reprograms speed and format as soon as its ROM initialises it. [`Endpoint::send_break`] asserts BREAK for about 250 ms.
 //! * `stdio` puts the terminal into raw mode on Unix when stdin is a tty (no
 //!   echo, no line editing, no signal keys - Ctrl-C is delivered as byte 0x03)
 //!   and restores it when the endpoint is dropped. No byte translation is done
@@ -124,6 +135,16 @@ pub trait Endpoint: Send {
         let _ = t;
         self.set_line_params(params);
     }
+    /// Hardware flow control, our side: drive our RTS output. `false` asks
+    /// the peer to stop sending (an emulated receiver that cannot keep up).
+    /// Backends without a way to carry it ignore it.
+    fn set_rts(&mut self, _ready: bool) {}
+    /// Hardware flow control, peer side: state of our CTS input, i.e. the
+    /// peer's RTS. `false` = the peer asked us to stop sending. Backends
+    /// without flow control always report `true`.
+    fn cts(&self) -> bool {
+        true
+    }
     /// Current line status.
     fn status(&self) -> LineStatus {
         LineStatus { connected: true }
@@ -169,11 +190,22 @@ pub fn open(spec: &str) -> io::Result<Box<dyn Endpoint>> {
             Ok(Box::new(TcpListenEndpoint::bind(addr)?))
         }
         "tcp" => {
-            let addr = need_arg("expected tcp:HOST:PORT")?;
-            Ok(Box::new(TcpConnectEndpoint::connect(addr)?))
+            let addr = need_arg("expected tcp:HOST:PORT[,raw]")?;
+            match addr.strip_suffix(",raw") {
+                Some(a) => Ok(Box::new(TcpConnectEndpoint::connect_raw(a)?)),
+                None => Ok(Box::new(TcpConnectEndpoint::connect(addr)?)),
+            }
         }
         "serial" => {
-            let a = need_arg("expected serial:DEV[@BAUD]")?;
+            let a = need_arg("expected serial:DEV[@BAUD][,FORMAT]")?;
+            // Optional character format after the last comma, e.g. ",8N2".
+            let (a, format) = match a.rsplit_once(',') {
+                Some((rest, f)) => {
+                    let f = parse_format(f).ok_or_else(|| bad_spec(spec, "invalid format (expected e.g. 8N1, 8N2, 7E1)"))?;
+                    (rest, f)
+                }
+                None => (a, (8, Parity::None, StopBits::One)),
+            };
             let (dev, baud) = match a.rsplit_once('@') {
                 Some((d, b)) => {
                     let baud = b
@@ -188,7 +220,8 @@ pub fn open(spec: &str) -> io::Result<Box<dyn Endpoint>> {
             if dev.is_empty() {
                 return Err(bad_spec(spec, "missing device"));
             }
-            Ok(Box::new(serial::SerialEndpoint::open(dev, baud)?))
+            let (data_bits, parity, stop_bits) = format;
+            Ok(Box::new(serial::SerialEndpoint::open(dev, LineParams { baud, data_bits, parity, stop_bits })?))
         }
         _ => Err(bad_spec(
             spec,
@@ -196,6 +229,31 @@ pub fn open(spec: &str) -> io::Result<Box<dyn Endpoint>> {
              tcp-listen:ADDR:PORT, tcp:HOST:PORT or serial:DEV[@BAUD])",
         )),
     }
+}
+
+/// Character format such as `8N1`, `8N2`, `7E1` (data bits 5-8, parity N/E/O,
+/// stop bits 1/2), case-insensitive.
+fn parse_format(f: &str) -> Option<(u8, Parity, StopBits)> {
+    let b = f.trim().as_bytes();
+    if b.len() != 3 {
+        return None;
+    }
+    let data = match b[0] {
+        c @ b'5'..=b'8' => c - b'0',
+        _ => return None,
+    };
+    let parity = match b[1].to_ascii_uppercase() {
+        b'N' => Parity::None,
+        b'E' => Parity::Even,
+        b'O' => Parity::Odd,
+        _ => return None,
+    };
+    let stop = match b[2] {
+        b'1' => StopBits::One,
+        b'2' => StopBits::Two,
+        _ => return None,
+    };
+    Some((data, parity, stop))
 }
 
 fn bad_spec(spec: &str, why: &str) -> io::Error {

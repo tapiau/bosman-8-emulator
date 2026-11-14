@@ -16,11 +16,14 @@ usage: bosman8 [options]
                          opens and the options below pre-set its settings
   --config PATH          GUI settings file (default: <config dir>/bosman8/gui.json)
   --rom PATH             ROM image (default: bosman8_rom from /etc/bosman-8-emulator.conf,
-                         else roms/bosman8/bosman8.bin here or next to the executable)
+                         else roms/bosman8/bosman8.bin here or next to the executable,
+                         else the built-in 32 KB CPM-R ROM)
   --term SPEC            terminal line, SIO-A (default tcp-listen:127.0.0.1:3001)
   --aux SPEC             V.24 line, SIO-B (default none)
                          SPEC: none | loopback | stdio | tcp-listen:ADDR:PORT |
-                               tcp:HOST:PORT | serial:DEV[@BAUD]
+                               tcp:HOST:PORT[,raw] | serial:DEV[@BAUD][,8N2]
+                         (TCP between the emulators carries RTS/CTS: the
+                         terminal paces SIO-A; ,raw = plain byte stream)
   --dip HEX              jumper bits of port 0x98 (bits 1,3,5,6 used; default 40,
                          00 when --disk-c is given). Bits 3/5 select the floppy
                          format: 00 = B:200K C:200K, 08 = 400K/400K,
@@ -33,7 +36,8 @@ usage: bosman8 [options]
   --max-seconds N        stop after N emulated seconds
   --trace-io             log I/O port accesses (first 16 per port) to stderr
   --trace-cpu-from ADDR  trace instructions from PC=ADDR (hex) to stderr
-  --fixed-baud           keep host serial ports at the speed given in serial:DEV@BAUD
+  --fixed-baud           keep host serial ports at the speed/format given in
+                         serial:DEV@BAUD[,FMT] (SIO-A terminal line: ,8N2)
                          (default: follow the speed/format the guest programs
                          into the SIO, e.g. 9600 -> 20833 bit/s of the D/E/F link)
   --trace-aux            log bytes sent (->) and received (<-) on SIO-B to stderr,
@@ -149,6 +153,10 @@ fn find_rom(explicit: Option<&Path>) -> Result<(PathBuf, Vec<u8>), String> {
         if let Ok(data) = std::fs::read(c) {
             return Ok((c.clone(), data));
         }
+    }
+    if explicit.is_none() {
+        // No file around (e.g. started from another directory): the built-in 32 KB ROM.
+        return Ok((PathBuf::from("(built-in roms/bosman8/bosman8.bin)"), bosman8::DEFAULT_ROM.to_vec()));
     }
     Err(format!(
         "cannot read ROM (tried {})",

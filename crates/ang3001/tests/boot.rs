@@ -5,7 +5,7 @@ use ang3001::*;
 const SEC: u64 = 6_000_000; // default CPU clock
 
 fn booted() -> Ang3001 {
-    let mut m = Ang3001::with_default_rom();
+    let mut m = Ang3001::new(ROM_ZJ_PG, Config::default());
     m.run_cycles(2 * SEC);
     assert!(m.booted(), "ROM did not reach MAIN_LOOP, pc={:04X}", m.pc());
     m
@@ -82,7 +82,7 @@ fn line_offset_moves_picture() {
 
 #[test]
 fn boot_beeps_and_beep_ends() {
-    let mut m = Ang3001::with_default_rom();
+    let mut m = Ang3001::new(ROM_ZJ_PG, Config::default());
     let mut seen = false;
     for _ in 0..100 {
         m.run_cycles(SEC / 50);

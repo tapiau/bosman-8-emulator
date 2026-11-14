@@ -79,6 +79,14 @@ rozkłada 3 młodsze bity A na Q6, Q4, Q5. A=FF → bank domyślny z `F26B`.
   ma to samo ustawienie (8251, słowo trybu CDh = async ×1, 8N2, 100 kbit/s),
   więc łącze da się poprowadzić przez zwykły adapter USB-RS232, który przyjmuje
   100 000 bit/s (np. PL2303HX, FTDI).
+- 🟢 **Auto Enables na SIO-A** (WR3 = E1h, bit 5): nadajnik startuje znak
+  tylko przy aktywnym CTS, a BIOS CONOUT (`F3CE`) czeka na RR1.0 „all sent”
+  — terminal wstrzymuje komputer linią CTS, gdy nie nadąża (np. SOKOBAN rysuje
+  licznik czasu dużymi cyframi w pętli: Bosman mógłby nadawać ~6400 B/s,
+  terminal przetwarza ~2200 B/s). Emulator podaje na CTS stan RTS drugiej
+  strony łącza (`Endpoint::cts`, zob. [ARCHITECTURE.md](ARCHITECTURE.md)). ❓ Czym
+  prawdziwy terminal steruje tą linią — ROM nie przełącza RTS/DTR w 8251,
+  więc pewnie sprzęt (np. wyjście RxRDY 8251); do sprawdzenia na schemacie.
 - Kanał B = V.24 (drugi komputer, PUNCH, napędy D/E/F), async ×16, domyślnie
   ~9600 (8253 licznik 2 = 13).
 - Używane rejestry: RR0 bit0 (Rx avail), bit2 (Tx empty), bit7 (break/abort,

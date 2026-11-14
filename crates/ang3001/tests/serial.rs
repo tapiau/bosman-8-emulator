@@ -6,7 +6,7 @@ use b8_link::Endpoint;
 const SEC: u64 = 6_000_000;
 
 fn booted_with_link() -> (Ang3001, Box<dyn Endpoint>) {
-    let mut m = Ang3001::with_default_rom();
+    let mut m = Ang3001::new(ROM_ZJ_PG, Config::default());
     let (a, b) = b8_link::pair();
     m.attach_link(a);
     m.run_cycles(2 * SEC);
@@ -258,4 +258,26 @@ fn demo_fire_animates_if_available() {
     assert!((0x4000..0x4100).contains(&m.pc()), "pc={:04X}", m.pc());
     assert_ne!(a, b, "fire does not animate");
     assert!(b.iter().filter(|&&x| x != 0).count() > 50);
+}
+
+/// More received data than the terminal has taken in: RTS goes off (the
+/// computer's CTS) until the backlog is drawn, then back on.
+#[test]
+fn rts_off_while_backlog() {
+    let (mut m, mut host) = booted_with_link();
+    assert!(host.cts());
+    let text: Vec<u8> = (0..2000).map(|i| if i % 70 == 69 { b'\n' } else { b'A' + (i % 26) as u8 }).collect();
+    for &b in &text {
+        host.write(b);
+    }
+    let mut seen_off = false;
+    for _ in 0..400 {
+        m.run_cycles(SEC / 100);
+        seen_off |= !host.cts();
+        if seen_off && host.cts() && m.rx_backlog() == 0 {
+            break;
+        }
+    }
+    assert!(seen_off, "RTS never went off");
+    assert!(host.cts(), "RTS did not come back, backlog {}", m.rx_backlog());
 }

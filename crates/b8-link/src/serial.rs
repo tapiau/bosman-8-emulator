@@ -86,11 +86,26 @@ pub(crate) struct SerialEndpoint {
 }
 
 impl SerialEndpoint {
-    pub(crate) fn open(dev: &str, baud: u32) -> io::Result<SerialEndpoint> {
+    /// Open `dev` with the initial line setting `p` (the emulated chip may
+    /// change it later via [`Endpoint::set_line_params`]).
+    pub(crate) fn open(dev: &str, p: LineParams) -> io::Result<SerialEndpoint> {
+        let baud = p.baud;
         let port = serialport::new(dev, baud)
-            .data_bits(DataBits::Eight)
-            .parity(Parity::None)
-            .stop_bits(StopBits::One)
+            .data_bits(match p.data_bits {
+                5 => DataBits::Five,
+                6 => DataBits::Six,
+                7 => DataBits::Seven,
+                _ => DataBits::Eight,
+            })
+            .parity(match p.parity {
+                crate::Parity::None => Parity::None,
+                crate::Parity::Odd => Parity::Odd,
+                crate::Parity::Even => Parity::Even,
+            })
+            .stop_bits(match p.stop_bits {
+                crate::StopBits::One => StopBits::One,
+                _ => StopBits::Two,
+            })
             .flow_control(FlowControl::None)
             .timeout(READ_TIMEOUT)
             .open()
@@ -131,7 +146,7 @@ impl SerialEndpoint {
             }
         })?;
 
-        let line = Arc::new(Mutex::new(format!("{baud} 8N1")));
+        let line = Arc::new(Mutex::new(p.to_string()));
         let line_w = line.clone();
         let ok_w = ok.clone();
         thread::Builder::new().name("serial-writer".into()).spawn(move || {

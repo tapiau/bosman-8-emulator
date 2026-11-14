@@ -64,18 +64,34 @@ pliku brakuje sektorów formatu wybranego zworkami (np. dyskietka 200 KB przy zw
 obraz jest wkładany jako zabezpieczony przed zapisem, a komunikat podpowiada właściwy format.
 
 Specyfikacje łącza: `none`, `loopback`, `stdio`, `tcp-listen:ADDR:PORT`,
-`tcp:HOST:PORT`, `serial:DEV[@BAUD]`. Pełna lista opcji: `--help`.
+`tcp:HOST:PORT[,raw]`, `serial:DEV[@BAUD][,FORMAT]`. Pełna lista opcji: `--help`.
+
+Port szeregowy otwiera się jako 8N1 (albo z formatem podanym po przecinku, np.
+`serial:/dev/ttyUSB0@100000,8N2`); bez `--fixed-baud` emulowany układ przestawia prędkość i format,
+gdy ROM go zaprogramuje (łącze Bosman ↔ ANG: 100000 8N2). Z `--fixed-baud` port zostaje przy
+tym, co podano w specyfikacji — dla ANG-3001 trzeba więc dopisać `,8N2`.
+
+Między emulatorami po TCP działa sprzętowe sterowanie przepływem (RTS/CTS, podzbiór RFC 2217):
+terminal, który nie nadąża rysować, wstrzymuje Bosmana — jak na prawdziwym sprzęcie (SIO-A
+pracuje z Auto Enables). Bez tego gry rysujące dużo grafiki (np. SOKOBAN) reagowały na klawisze
+z opóźnieniem dziesiątek sekund. Zwykły klient TCP (`nc`, program terminalowy) dalej dostaje
+surowy strumień bajtów; `tcp:HOST:PORT,raw` łączy bez protokołu (np. z `ser2net` w trybie raw).
 
 Klawisze terminala: F12 (trzymany) = BREAK, F11 = reset, F10 = CAPS, F9 = turbo,
-F8 / Scroll Lock = STOP (stronicowanie), F7 = LOCAL wł./wył. Te same funkcje mają
+F8 / Scroll Lock = STOP (stronicowanie), F7 = LOCAL wł./wył. Strzałki domyślnie wysyłają
+cyfry 8 / 2 / 4 / 6 (góra / dół / lewo / prawo — jak klawiatura numeryczna, tego używają gry, np.
+SOKOBAN); tryb zmienia lista ARROWS na pasku albo F6 (2468, VT52 = `ESC A–D`, WordStar = ^E ^X ^S ^D,
+VIM = k j h l, NONE), a przy starcie `--arrows numpad|vt52|wordstar|vim|none` (`off` = `none`). Te same funkcje mają
 przyciski pod ekranem (RESET, BREAK, LOCAL, STOP, CAPS, TURBO — klikane myszą,
 przełączniki podświetlone, gdy aktywne) i kontrolki LINK / BEEP / WAIT.
 
-ROM terminala: domyślnie wbudowany `roms/ang3001/ang3001.bin` (ZJ wersja PG). Nowszy ROM 90.09.11
-(`ang3001 --rom roms/ang3001/ANG-3001_90.09.11.BIN`) zna więcej sekwencji sterujących — na nim
-gry z dyskietki GRY (np. SOKOBAN) rysują grafikę; na starszym wypisują kody. W 90.09.11 BREAK
-od razu wysyła BREAK na łącze, a LOCAL włącza się przyciskiem / F7 (bez zachęty „BREAK - powtórz”).
-Emulator rozpoznaje wersję ROM-u sam.
+ROM terminala: domyślnie wbudowany ROM 90.09.11 (`roms/ang3001/ANG-3001_90.09.11.BIN`) — zna
+sekwencje sterujące, których używają gry z dyskietki GRY (np. SOKOBAN rysuje planszę). BREAK od
+razu wysyła BREAK na łącze, a LOCAL włącza się przyciskiem / F7 (bez zachęty „BREAK - powtórz”).
+Starszy ROM: `ang3001 --rom roms/ang3001/ANG3001_ZJ_wersjaPG.BIN` (na nim te gry wypisują kody).
+Emulator rozpoznaje wersję ROM-u sam. ROM Bosmana: domyślnie `roms/bosman8/bosman8.bin` (CPM-R,
+32 KB), a gdy pliku nie ma obok — ta sama wersja wbudowana w program; obrazy UNIMOR ZJ (16 KB) tylko
+przez `--rom`.
 
 ## Dokumentacja
 
@@ -85,8 +101,9 @@ Emulator rozpoznaje wersję ROM-u sam.
 - [doc/ang3001-hardware.md](doc/ang3001-hardware.md) — sprzęt terminala
 
 ROM-y pochodzą z repozytoriów analizy `bosman-8-rom` i `bosman-8-ang-3000-rom`, po katalogu na maszynę:
-`roms/bosman8/` (CPM-R `bosman8.bin` i obrazy UNIMOR ZJ), `roms/ang3001/` (terminal: `ang3001.bin` =
-ZJ wersja PG, `ANG-3001_90.09.11.BIN`); miejsce na kolejne terminale (np. `roms/an2001/`).
+`roms/bosman8/` (CPM-R `bosman8.bin` 32 KB — domyślny, i obrazy UNIMOR ZJ 16 KB), `roms/ang3001/`
+(terminal: `ANG-3001_90.09.11.BIN` — domyślny, `ANG3001_ZJ_wersjaPG.BIN`); miejsce na kolejne
+terminale (np. `roms/an2001/`).
 
 ## Wydania (Linux / Windows / macOS)
 
@@ -100,8 +117,8 @@ Bosmanów z ROM-ami UNIMOR ZJ, z [instrukcją instalacji](tools/bsrv/README.md).
 Publikacja wydania:
 
 ```sh
-git tag v0.4.1
-git push origin v0.4.1     # → workflow buduje paczki i tworzy Release na GitHubie
+git tag v0.4.2
+git push origin v0.4.2     # → workflow buduje paczki i tworzy Release na GitHubie
 ```
 
 Bez taga: zakładka Actions → Release → „Run workflow” buduje paczki jako

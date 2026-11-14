@@ -21,7 +21,8 @@
 //! BEEP and WAIT (the ROM waits in STOP after a page). Keys: typed
 //! characters are sent as ASCII (host keyboard layout honoured), Enter =
 //! 0x0D, Backspace = 0x08, Tab = 0x09, Esc = 0x1B, Delete = 0x7F,
-//! Ctrl+letter = control code, arrows = VT52 `ESC A/B/C/D` (`--arrows`),
+//! Ctrl+letter = control code, arrows = digits 8/2/4/6 by default (ARROWS
+//! drop-down on the bar / F6 / `--arrows`: also VT52, WordStar, none),
 //! F12 (hold) = BREAK, F11 = reset, F10 = CAPS toggle, F9 = turbo toggle,
 //! F8 / Scroll Lock = STOP (paging) toggle, F7 = LOCAL on/off.
 //! The beeper is not played yet; while it sounds the window title shows
@@ -39,7 +40,7 @@ use std::time::{Duration, Instant};
 
 use ang3001::{Ang3001, Config, PHOSPHOR_AMBER, PHOSPHOR_GREEN, PHOSPHOR_WHITE, SCREEN_H, SCREEN_W};
 use minifb::{InputCallback, Key, KeyRepeat, MouseButton, MouseMode, Scale, Window, WindowOptions};
-use toolbar::{Action, Toolbar};
+use toolbar::{Action, ArrowMode, Toolbar};
 
 const HELP: &str = "\
 ang3001 - ANG-3001 graphics terminal emulator (Z80B, 512x256 mono)
@@ -48,10 +49,12 @@ USAGE: ang3001 [OPTIONS]
 
 OPTIONS:
   --rom FILE          ROM image (default: ang3001_rom from /etc/bosman-8-emulator.conf,
-                      else built-in roms/ang3001/ang3001.bin)
+                      else the built-in ROM 90.09.11; the older one is
+                      roms/ang3001/ANG3001_ZJ_wersjaPG.BIN)
   --link SPEC         serial line endpoint (default: tcp:127.0.0.1:3001)
-                      none | loopback | stdio | tcp:HOST:PORT | tcp-listen:ADDR:PORT
-                      | serial:DEV[@BAUD]
+                      none | loopback | stdio | tcp:HOST:PORT[,raw] | tcp-listen:ADDR:PORT
+                      | serial:DEV[@BAUD][,8N2]; over TCP the terminal sends RTS (stop
+                      when it can't keep up) via RFC 2217, ,raw = without it
   --cpu-mhz F         CPU clock in MHz (default 6)
   --pit-mhz F         8253 input clock in MHz (default 1.3)
   --char-cycles N     fixed serial character time in CPU cycles
@@ -63,14 +66,18 @@ OPTIONS:
   --scale N           window height multiplier 1..4 (default 3; width is 2x
                       for N>=2, i.e. 1024x768 at 3)
   --turbo             run as fast as possible
-  --arrows MODE       what the arrow keys send: vt52 (ESC A/B/C/D, default),
-                      wordstar (^E ^X ^D ^S) or none
+  --arrows MODE       what the arrow keys up/down/right/left send (also the
+                      ARROWS drop-down on the bar, F6 = next mode):
+                      numpad (8 2 6 4, default - games such as SOKOBAN),
+                      vt52 (ESC A B C D), wordstar (^E ^X ^D ^S),
+                      vim (k j l h) or none / off (arrow keys send nothing)
   --inject FILE       feed FILE into the serial input after boot
   --load-ter FILE     upload a terminal binary (org 4000h) via ESC i and run it
                       with ESC 0 after boot (like RUNTERM.COM)
   --type TEXT         type TEXT on the keyboard after boot (\\r = Enter)
-  --fixed-baud        keep a serial:DEV@BAUD link at that speed (default: follow
-                      the speed/format the ROM programs into the 8251, 100000 8N2)
+  --fixed-baud        keep a serial:DEV@BAUD[,FMT] link at that speed and format
+                      (default: follow the speed/format the ROM programs into the
+                      8251, 100000 8N2; with --fixed-baud add ,8N2 yourself)
   --trace-io          log accesses to unknown ports (and 0x0A/0x0B) to stderr
   --headless          no window; runs unpaced unless --realtime
   --realtime          pace headless mode to real time
@@ -86,7 +93,8 @@ KEYS (window):
   Enter / Backspace / Tab / Esc / Delete  ->  0x0D / 0x08 / 0x09 / 0x1B / 0x7F
   Ctrl+letter         control code (Ctrl+A = 0x01 ... Ctrl+Z = 0x1A)
   Ctrl+[ \\ ] ^ _      0x1B 0x1C 0x1D 0x1E 0x1F
-  arrows              see --arrows
+  arrows              see --arrows (default 8 / 2 / 6 / 4 for up/down/right/left)
+  F6                  next arrow-key mode (shown on the ARROWS drop-down)
   F12 (hold)          BREAK key
   F11                 reset terminal (CPU and chips; RAM is kept)
   F10                 toggle CAPS (the ROM swaps letter case while active)
@@ -100,6 +108,8 @@ KEYS (window):
 BUTTONS (window, below the screen; click with the mouse):
   RESET BREAK LOCAL STOP CAPS TURBO   same as the keys above; BREAK is held
                       while the button is pressed, toggles are lit while on
+  ARROWS drop-down    shows the arrow-key mode (2468 / VT52 / WS / VIM / NONE); click
+                      to pick one from the list, F6 = next
   LEDs                LINK = peer connected, BEEP = beeper sounding,
                       WAIT = terminal waits in STOP (press a key for more)
 ";
@@ -110,7 +120,7 @@ struct Opts {
     cfg: Config,
     scale: usize,
     turbo: bool,
-    arrows: Arrows,
+    arrows: ArrowMode,
     inject: Vec<u8>,
     typed: Vec<u8>,
     headless: bool,
@@ -118,13 +128,6 @@ struct Opts {
     after: f64,
     screenshot: Option<PathBuf>,
     dump_text: bool,
-}
-
-#[derive(Clone, Copy, PartialEq)]
-enum Arrows {
-    Vt52,
-    WordStar,
-    None,
 }
 
 fn parse_color(s: &str) -> Result<u32, String> {
@@ -146,7 +149,7 @@ fn parse_args() -> Result<Opts, String> {
         cfg: Config::default(),
         scale: 3,
         turbo: false,
-        arrows: Arrows::Vt52,
+        arrows: ArrowMode::Numpad,
         inject: Vec::new(),
         typed: Vec::new(),
         headless: false,
@@ -176,12 +179,9 @@ fn parse_args() -> Result<Opts, String> {
             "--scale" => o.scale = num::<usize>(&a, val(&a)?)?.clamp(1, 4),
             "--turbo" => o.turbo = true,
             "--arrows" => {
-                o.arrows = match val(&a)?.as_str() {
-                    "vt52" => Arrows::Vt52,
-                    "wordstar" => Arrows::WordStar,
-                    "none" => Arrows::None,
-                    v => return Err(format!("--arrows: unknown mode '{v}'")),
-                }
+                let v = val(&a)?;
+                o.arrows = ArrowMode::parse(&v)
+                    .ok_or_else(|| format!("--arrows: unknown mode '{v}' (numpad, vt52, wordstar, vim, none/off)"))?;
             }
             "--inject" => {
                 let f = val(&a)?;
@@ -384,6 +384,7 @@ fn gui(m: &mut Ang3001, o: &Opts) -> Result<(), String> {
     let slice = (o.cfg.cpu_hz / 50) as u64;
     let frame = Duration::from_millis(20);
     let mut turbo = o.turbo;
+    let mut arrows = o.arrows;
     let mut typist = Typist { pending: o.typed.iter().copied().collect() };
     let mut title = String::new();
     let mut next = Instant::now();
@@ -403,11 +404,7 @@ fn gui(m: &mut Ang3001, o: &Opts) -> Result<(), String> {
                 Key::Delete => send = b"\x7f",
                 Key::Up | Key::Down | Key::Right | Key::Left => {
                     let i = [Key::Up, Key::Down, Key::Right, Key::Left].iter().position(|&a| a == k).unwrap();
-                    send = match o.arrows {
-                        Arrows::Vt52 => [b"\x1bA", b"\x1bB", b"\x1bC", b"\x1bD"][i],
-                        Arrows::WordStar => [b"\x05", b"\x18", b"\x04", b"\x13"][i],
-                        Arrows::None => b"",
-                    };
+                    send = arrows.keys()[i];
                 }
                 _ if ctrl_down => {
                     code = match k {
@@ -442,6 +439,7 @@ fn gui(m: &mut Ang3001, o: &Opts) -> Result<(), String> {
                 Key::F9 => Some(Action::Turbo),
                 Key::F8 | Key::ScrollLock => Some(Action::Stop),
                 Key::F7 => Some(Action::Local),
+                Key::F6 => Some(Action::ArrowsNext),
                 _ => None,
             })
             .collect();
@@ -452,6 +450,9 @@ fn gui(m: &mut Ang3001, o: &Opts) -> Result<(), String> {
                 Action::Reset => m.reset(),
                 Action::Caps => m.set_caps(!m.caps()),
                 Action::Turbo => turbo = !turbo,
+                Action::Arrows(a) => arrows = a,
+                Action::ArrowsNext => arrows = arrows.next(),
+                Action::ArrowsMenu => {} // handled by the bar
                 Action::Stop => m.set_stop(!m.stop()),
                 Action::Local => {
                     m.set_local(!m.is_local());
@@ -488,6 +489,7 @@ fn gui(m: &mut Ang3001, o: &Opts) -> Result<(), String> {
             waiting: m.is_stopped(),
             beep: b.active,
             link: link_up,
+            arrows,
         };
         bar.draw(&mut buf, &st, o.cfg.fg);
         for y in 0..SCREEN_H {
@@ -502,6 +504,7 @@ fn gui(m: &mut Ang3001, o: &Opts) -> Result<(), String> {
                 buf.copy_within(dst0..dst0 + w, dst0 + r * w);
             }
         }
+        bar.draw_popup(&mut buf, &st, o.cfg.fg);
         win.update_with_buffer(&buf, w, h).map_err(|e| e.to_string())?;
 
         let link = m.link().map(|l| l.describe()).unwrap_or_default();

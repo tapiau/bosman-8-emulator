@@ -1,6 +1,7 @@
 //! In-memory endpoints: `none`, `loopback` and [`crate::pair`].
 
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::{Endpoint, LineStatus};
@@ -46,6 +47,9 @@ type Queue = Arc<Mutex<VecDeque<u8>>>;
 pub(crate) struct PairEndpoint {
     rx: Queue,
     tx: Queue,
+    /// Our RTS (the peer's CTS) and the peer's RTS (our CTS).
+    rts: Arc<AtomicBool>,
+    peer_rts: Arc<AtomicBool>,
     name: &'static str,
 }
 
@@ -53,9 +57,11 @@ impl PairEndpoint {
     pub(crate) fn new_pair() -> (PairEndpoint, PairEndpoint) {
         let ab: Queue = Arc::default();
         let ba: Queue = Arc::default();
+        let rts_a = Arc::new(AtomicBool::new(true));
+        let rts_b = Arc::new(AtomicBool::new(true));
         (
-            PairEndpoint { rx: ba.clone(), tx: ab.clone(), name: "pair (A)" },
-            PairEndpoint { rx: ab, tx: ba, name: "pair (B)" },
+            PairEndpoint { rx: ba.clone(), tx: ab.clone(), rts: rts_a.clone(), peer_rts: rts_b.clone(), name: "pair (A)" },
+            PairEndpoint { rx: ab, tx: ba, rts: rts_b, peer_rts: rts_a, name: "pair (B)" },
         )
     }
 }
@@ -73,6 +79,12 @@ impl Endpoint for PairEndpoint {
     }
     fn read(&mut self) -> Option<u8> {
         lock(&self.rx).pop_front()
+    }
+    fn set_rts(&mut self, ready: bool) {
+        self.rts.store(ready, Ordering::Relaxed);
+    }
+    fn cts(&self) -> bool {
+        self.peer_rts.load(Ordering::Relaxed)
     }
     fn status(&self) -> LineStatus {
         LineStatus { connected: Arc::strong_count(&self.tx) > 1 }

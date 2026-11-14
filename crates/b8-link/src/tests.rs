@@ -129,3 +129,91 @@ fn tcp_client_retries_until_server_up() {
     server.write(b'b');
     assert_eq!(read_n(client.as_mut(), 1), b"b");
 }
+
+#[test]
+fn pair_carries_rts_cts() {
+    let (mut a, b) = pair();
+    assert!(a.cts() && b.cts());
+    a.set_rts(false);
+    assert!(!b.cts());
+    assert!(a.cts());
+    a.set_rts(true);
+    assert!(b.cts());
+}
+
+#[test]
+fn tcp_rfc2217_flow_control_and_ff_bytes() {
+    let mut srv = TcpListenEndpoint::bind("127.0.0.1:0").unwrap();
+    let addr = srv.local_addr().to_string();
+    let mut cli = open(&format!("tcp:{addr}")).unwrap();
+    assert!(wait_until(|| srv.status().connected && cli.describe().contains("RTS/CTS")), "{}", cli.describe());
+    assert!(wait_until(|| srv.describe().contains("RTS/CTS")));
+    // 0xFF survives in both directions (doubled on the wire)
+    for b in [0xFF, b'A', 0xFF, 0xFF, 0x00] {
+        cli.write(b);
+        srv.write(b);
+    }
+    assert_eq!(read_n(&mut srv, 5), vec![0xFF, b'A', 0xFF, 0xFF, 0x00]);
+    assert_eq!(read_n(cli.as_mut(), 5), vec![0xFF, b'A', 0xFF, 0xFF, 0x00]);
+    // client RTS -> server CTS
+    assert!(srv.cts());
+    cli.set_rts(false);
+    assert!(wait_until(|| !srv.cts()));
+    cli.set_rts(true);
+    assert!(wait_until(|| srv.cts()));
+    // server RTS -> client CTS
+    srv.set_rts(false);
+    assert!(wait_until(|| !cli.cts()));
+    srv.set_rts(true);
+    assert!(wait_until(|| cli.cts()));
+    // no stray bytes from the negotiation
+    std::thread::sleep(Duration::from_millis(50));
+    assert_eq!(srv.read(), None);
+    assert_eq!(cli.read(), None);
+}
+
+#[test]
+fn tcp_server_stays_raw_for_plain_clients() {
+    use std::io::{Read, Write};
+    let mut srv = TcpListenEndpoint::bind("127.0.0.1:0").unwrap();
+    let mut s = std::net::TcpStream::connect(srv.local_addr()).unwrap();
+    s.write_all(&[b'h', 0xFF, b'i']).unwrap();
+    assert_eq!(read_n(&mut srv, 3), vec![b'h', 0xFF, b'i']);
+    srv.write(0xFF);
+    srv.write(b'!');
+    srv.set_rts(false); // nothing to send without Telnet
+    let mut buf = [0u8; 8];
+    s.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    let n = s.read(&mut buf).unwrap();
+    assert_eq!(&buf[..n], &[0xFF, b'!']);
+    assert!(srv.cts());
+    assert!(!srv.describe().contains("RTS/CTS"));
+}
+
+#[test]
+fn tcp_raw_client_sends_no_offer() {
+    use std::io::Read;
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = l.local_addr().unwrap();
+    let mut cli = open(&format!("tcp:{addr},raw")).unwrap();
+    let (mut s, _) = l.accept().unwrap();
+    assert!(wait_until(|| cli.status().connected));
+    cli.write(b'x');
+    let mut buf = [0u8; 8];
+    s.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    let n = s.read(&mut buf).unwrap();
+    assert_eq!(&buf[..n], b"x");
+}
+
+#[test]
+fn serial_format_parsing() {
+    assert_eq!(parse_format("8N2"), Some((8, Parity::None, StopBits::Two)));
+    assert_eq!(parse_format("7e1"), Some((7, Parity::Even, StopBits::One)));
+    assert_eq!(parse_format("8O1"), Some((8, Parity::Odd, StopBits::One)));
+    for bad in ["", "8N", "9N1", "8X1", "8N3", "8N1x"] {
+        assert_eq!(parse_format(bad), None, "{bad}");
+    }
+    // A bad format is reported before the device is touched.
+    let e = open("serial:/nonexistent@100000,8Q2").err().unwrap();
+    assert!(e.to_string().contains("invalid format"), "{e}");
+}

@@ -28,6 +28,7 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
 - ✅ T3.3 Klawiatura: porty 0x8C/0x8D/0x8E, VSYNC na bicie 2 portu 0x8E
 - ✅ T3.4 Okno (minifb), mapowanie klawiszy hosta, BREAK, LOCAL; tryb `--headless` ze zrzutem PGM
 - ✅ T3.5 Weryfikacja ekranu startowego (baner „ANG-3000”) i offsetu wierszy ❓ offset do potwierdzenia zdjęciem prawdziwego ekranu
+- ✅ T3.7 Strzałki w terminalu: domyślnie cyfry 8/2/4/6 (gry, np. SOKOBAN); lista ARROWS na pasku, F6, `--arrows numpad|vt52|wordstar|vim|none` (`off`)
 - ✅ T3.6 Pasek przycisków w oknie terminala (RESET, BREAK, LOCAL, STOP, CAPS, TURBO + kontrolki LINK/BEEP/WAIT), API `set_stop`, `set_local`, `mode()`
 
 ## Faza 4 — integracja
@@ -35,6 +36,7 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
 - ⏳ T4.2 Uruchomienie demek z `bosman-8-ang-3000-rom/demo` (wstrzyknięcie plików na RAM-dysk)
 - ✅ T4.3 Narzędzie `b8disk` (new/ls/put/get/rm) dla obrazów dyskietek 200/400/800 KB; obraz `disks/narzedzia.img`
 - ✅ T4.6 Obrazy Gotka `.hfe` (HxC v1) bezpośrednio w `--disk-b/c`, GUI i `b8disk`; zapis w miejscu (tylko pola danych zmienionych sektorów)
+- ✅ T4.8 Sterowanie przepływem RTS/CTS: SIO-A z Auto Enables, terminal wyłącza RTS przy zaległości; TCP między emulatorami przez podzbiór RFC 2217 (`,raw` wyłącza) ⏳ `serial:` — CTS z linii portu hosta (Bosman ↔ prawdziwy terminal) i RTS na porcie (ANG ↔ prawdziwy Bosman)
 - ✅ T4.7 ROM terminala ANG-3001 90.09.11 (`--rom roms/ang3001/ANG-3001_90.09.11.BIN`): profile ROM-ów, DSR 8251 nieaktywny; gry z dyskietki GRY (SOKOBAN) rysują grafikę
 
 ## Faza 4b — łącze między Bosmanami
@@ -110,3 +112,24 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
 - 2026-11-14: ROM-y podzielone na katalogi maszyn: `roms/bosman8/`, `roms/ang3001/` (miejsce na `roms/an2001/`).
   `bosman8` szuka też starej ścieżki `roms/bosman8.bin`; paczka `.deb` zostawia dowiązania pod starymi nazwami, bo
   `/etc/bosman-8-emulator.conf` z wcześniejszych wersji (conffile) może na nie wskazywać. Wydanie 0.4.1.
+- 2026-11-14: T4.8 — SOKOBAN reagował na klawisze po dziesiątkach sekund. Pomiar (oba rdzenie w jednym procesie):
+  gra w pętli rysuje licznik „Czas” dużymi cyframi, Bosman nadaje ~6400 B/s, terminal (podwajanie pikseli glifu
+  0x1BF4) przetwarza ~2200 B/s → zaległość rośnie ~4 KB/s (po 30 s 82 KB ≈ 38 s opóźnienia). Na sprzęcie hamuje to
+  Auto Enables SIO-A (WR3 = E1h): bez CTS układ nie nadaje, CONOUT czeka. Dodane: CTS w modelu SIO (`set_cts`),
+  `Endpoint::set_rts`/`cts`, RTS terminala z histerezą 32/8 bajtów, w TCP podzbiór RFC 2217 (klient oferuje
+  `WILL COM-PORT-OPTION`, serwer przyjmuje tylko na początku połączenia, więc `nc` działa jak dawniej). Wynik przez
+  prawdziwe gniazda TCP: w drodze 0–23 bajty (≈10 ms) zamiast 82 KB. Przy okazji: opakowanie `Tap` w GUI Bosmana
+  nie przekazywało `write_at`/`set_line_params` (GUI + port szeregowy gubiło odstępy bajtów i zmiany prędkości).
+  Testy: `b8-link` (parser, TCP w obie strony, surowy klient, `,raw`), SIO, `bosman8/tests/boot.rs`
+  (`terminal_rts_paces_output`), `ang3001/tests/serial.rs` (`rts_off_while_backlog`).
+- 2026-11-14: T3.7 — strzałki terminala domyślnie wysyłają cyfry 8/2/4/6 jak klawiatura numeryczna (sterowanie gier).
+  Tryb wybiera lista rozwijana ARROWS na pasku (rysowana fontem z ROM-u nad paskiem; klik na pozycji wybiera, klik
+  obok zamyka), F6 (następny tryb) i `--arrows numpad|vt52|wordstar|vim|none` (`off` = `none`; vim = k j h l). Przy `--scale 1`
+  kontrolki LINK/BEEP/WAIT się nie mieszczą obok listy i są pomijane (stan łącza jest też w tytule okna).
+  Przy okazji: `serial:DEV@BAUD,8N2` — format znaku w specyfikacji portu (wcześniej zawsze 8N1, a z `--fixed-baud`
+  port zostawał na 1 bicie stopu).
+- 2026-11-14: domyślne ROM-y: terminal — 90.09.11 (`ang3001::DEFAULT_ROM` = `ROM_90_09_11`; stary jako `ROM_ZJ_PG`,
+  plik przemianowany na oryginalną nazwę `roms/ang3001/ANG3001_ZJ_wersjaPG.BIN`; testy zachowania starego ROM-u
+  wskazują go jawnie). Bosman — CPM-R 32 KB, teraz także wbudowany (`bosman8::DEFAULT_ROM`), gdy pliku nie ma obok
+  (wcześniej uruchomienie spoza repo kończyło się błędem); obrazy ZJ 16 KB tylko przez `--rom`. `.deb`: dowiązania
+  `roms/ang3001.bin` i `roms/ang3001/ang3001.bin` prowadzą do domyślnego 90.09.11.

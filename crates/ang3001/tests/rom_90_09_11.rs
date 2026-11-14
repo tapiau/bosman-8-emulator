@@ -1,9 +1,9 @@
 //! ROM ANG-3001 90.09.11 (`roms/ang3001/ANG-3001_90.09.11.BIN`): boot, text,
-//! LOCAL / BREAK handling, which differ from the default ROM.
+//! LOCAL / BREAK handling, which differ from ROM ZJ wersja PG.
 
 use ang3001::*;
 
-const ROM: &[u8] = include_bytes!("../../../roms/ang3001/ANG-3001_90.09.11.BIN");
+const ROM: &[u8] = ROM_90_09_11;
 const SEC: u64 = 6_000_000; // default CPU clock
 
 fn booted() -> Ang3001 {
@@ -17,7 +17,9 @@ fn booted() -> Ang3001 {
 
 #[test]
 fn profiles_are_detected() {
-    assert_eq!(RomProfile::detect(DEFAULT_ROM), Some(PROFILE_ZJ_PG));
+    assert_eq!(RomProfile::detect(ROM_ZJ_PG), Some(PROFILE_ZJ_PG));
+    assert_eq!(RomProfile::detect(DEFAULT_ROM), Some(PROFILE_90_09_11), "90.09.11 is the default");
+    assert_eq!(Ang3001::with_default_rom().profile(), Some(PROFILE_90_09_11));
     assert_eq!(RomProfile::detect(ROM), Some(PROFILE_90_09_11));
     assert_eq!(RomProfile::detect(&[0u8; 0x4000]), None);
 }

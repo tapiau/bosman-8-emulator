@@ -6,7 +6,7 @@ use b8_link::Endpoint;
 const SEC: u64 = 6_000_000;
 
 fn booted_with_link() -> (Ang3001, Box<dyn Endpoint>) {
-    let mut m = Ang3001::with_default_rom();
+    let mut m = Ang3001::new(ROM_ZJ_PG, Config::default());
     let (a, b) = b8_link::pair();
     m.attach_link(a);
     m.run_cycles(2 * SEC);

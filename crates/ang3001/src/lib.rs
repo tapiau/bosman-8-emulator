@@ -35,8 +35,14 @@ use b8_chips::{Pit8253, Usart8251};
 use b8_link::{Endpoint, LineParams, Parity, StopBits};
 use iz80::{Cpu, Machine};
 
-/// The ROM image this emulator was written against (`roms/ang3001/ang3001.bin`).
-pub const DEFAULT_ROM: &[u8] = include_bytes!("../../../roms/ang3001/ang3001.bin");
+/// ROM 90.09.11 (`roms/ang3001/ANG-3001_90.09.11.BIN`), the default: it knows
+/// the escape sequences the games on the GRY disk use.
+pub const ROM_90_09_11: &[u8] = include_bytes!("../../../roms/ang3001/ANG-3001_90.09.11.BIN");
+/// ROM "ZJ wersja PG" (`roms/ang3001/ANG3001_ZJ_wersjaPG.BIN`), the one the
+/// emulator was first written against.
+pub const ROM_ZJ_PG: &[u8] = include_bytes!("../../../roms/ang3001/ANG3001_ZJ_wersjaPG.BIN");
+/// Built-in ROM used when none is given.
+pub const DEFAULT_ROM: &[u8] = ROM_90_09_11;
 
 pub const SCREEN_W: usize = 512;
 pub const SCREEN_H: usize = 256;
@@ -50,14 +56,14 @@ pub const TEXT_X0: usize = 16;
 pub const TEXT_LINE0: usize = 16;
 /// Glyph of character `c` is at `FONT_BASE + 10*c`, 10 rows, pixels in bits 7..2.
 pub const FONT_BASE: usize = 0x3600;
-/// Address of the main loop of the default ROM; reaching it means the boot
+/// Address of the main loop of ROM ZJ wersja PG; reaching it means the boot
 /// sequence is done. Other ROMs: see [`RomProfile`].
 pub const MAIN_LOOP_ADDR: u16 = PROFILE_ZJ_PG.main_loop;
-/// Top of the BREAK prompt loop ("BREAK - powtórz   LOCAL - ESC"), default ROM.
+/// Top of the BREAK prompt loop ("BREAK - powtórz   LOCAL - ESC"), ROM ZJ wersja PG.
 pub const BREAK_PROMPT_ADDR: u16 = 0x0533;
-/// Top of the LOCAL mode loop (keys go straight to the screen), default ROM.
+/// Top of the LOCAL mode loop (keys go straight to the screen), ROM ZJ wersja PG.
 pub const LOCAL_LOOP_ADDR: u16 = PROFILE_ZJ_PG.local_loop;
-/// Top of the STOP wait loop in `LF_HANDLER` (page full, "STOP" shown), default ROM.
+/// Top of the STOP wait loop in `LF_HANDLER` (page full, "STOP" shown), ROM ZJ wersja PG.
 pub const STOP_LOOP_ADDR: u16 = PROFILE_ZJ_PG.stop_loop;
 
 /// ROM-specific addresses of the polling loops the core watches (the ROM
@@ -78,7 +84,7 @@ pub struct RomProfile {
     signature: [u8; 4],
 }
 
-/// `ANG3001_ZJ_wersjaPG.BIN` (the default `roms/ang3001/ang3001.bin`).
+/// `ANG3001_ZJ_wersjaPG.BIN` ([`ROM_ZJ_PG`]).
 pub const PROFILE_ZJ_PG: RomProfile = RomProfile {
     name: "ZJ wersja PG",
     main_loop: 0x04BD,
@@ -89,7 +95,7 @@ pub const PROFILE_ZJ_PG: RomProfile = RomProfile {
     signature: [0xDB, 0x91, 0xE6, 0x02], // IN A,(91h); AND 02h
 };
 
-/// `ANG-3001_90.09.11.BIN`.
+/// `ANG-3001_90.09.11.BIN` ([`ROM_90_09_11`], the default).
 pub const PROFILE_90_09_11: RomProfile = RomProfile {
     name: "90.09.11",
     main_loop: 0x05CF,
@@ -109,6 +115,13 @@ impl RomProfile {
         })
     }
 }
+
+/// Flow control: received bytes waiting for the 8251 at which RTS goes off
+/// ("stop sending") and back on. The computer (Bosman SIO-A with Auto
+/// Enables) then holds its output, so a terminal that draws slower than the
+/// line rate paces the program instead of building up a backlog.
+const RTS_OFF_AT: usize = 32;
+const RTS_ON_AT: usize = 8;
 
 /// Unknown ROM: serial input is let through after this much emulated time.
 const UNKNOWN_ROM_BOOT_MS: u64 = 1500;
@@ -438,6 +451,8 @@ pub struct Ang3001 {
     mode: TermMode,
     auto: AutoSeq,
     break_sent: bool,
+    /// RTS last given to the link (flow control towards the computer).
+    rts: bool,
     /// Line parameters last passed to the link endpoint.
     line_applied: Option<LineParams>,
     break_count: u64,
@@ -491,6 +506,7 @@ impl Ang3001 {
             mode: TermMode::Normal,
             auto: AutoSeq::Idle,
             break_sent: false,
+            rts: true,
             line_applied: None,
             break_count: 0,
             since_pump: 0,
@@ -507,8 +523,9 @@ impl Ang3001 {
     }
 
     /// Attach the serial line (8251) to an endpoint.
-    pub fn attach_link(&mut self, ep: Box<dyn Endpoint>) {
+    pub fn attach_link(&mut self, mut ep: Box<dyn Endpoint>) {
         self.line_applied = None; // the new endpoint gets the current line parameters
+        ep.set_rts(self.rts);
         self.link = Some(ep);
     }
 
@@ -620,6 +637,20 @@ impl Ang3001 {
                 usart.push_rx(b);
             } else {
                 break;
+            }
+        }
+        let pending = usart.rx_pending();
+        let rts = if pending >= RTS_OFF_AT {
+            false
+        } else if pending <= RTS_ON_AT {
+            true
+        } else {
+            self.rts
+        };
+        if rts != self.rts {
+            self.rts = rts;
+            if let Some(l) = self.link.as_mut() {
+                l.set_rts(rts);
             }
         }
     }
@@ -1014,7 +1045,7 @@ mod tests {
 
     #[test]
     fn rom_switch_ports() {
-        let mut b = Ang3001::with_default_rom();
+        let mut b = Ang3001::new(ROM_ZJ_PG, Config::default());
         b.bus.poke(0x0000, 0x77);
         assert_eq!(b.bus.peek(0x0000), 0xC3); // ROM visible, write went to RAM
         b.bus.port_out(0x0B, 0);
@@ -1025,7 +1056,7 @@ mod tests {
 
     #[test]
     fn keyboard_ports() {
-        let mut m = Ang3001::with_default_rom();
+        let mut m = Ang3001::new(ROM_ZJ_PG, Config::default());
         assert_eq!(m.bus.port_in(0x8D), 0xF0);
         assert_eq!(m.bus.port_in(0x8E) & 0x21, 0x01);
         m.key_press(b'a');
