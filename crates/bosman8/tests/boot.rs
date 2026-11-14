@@ -4,8 +4,8 @@ use b8_link::Endpoint;
 use bosman8::{Bosman8, Config, CPU_HZ};
 
 fn rom() -> Vec<u8> {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../roms/bosman8.bin");
-    std::fs::read(path).expect("roms/bosman8.bin")
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../roms/bosman8/bosman8.bin");
+    std::fs::read(path).expect("roms/bosman8/bosman8.bin")
 }
 
 fn machine() -> (Bosman8, Box<dyn Endpoint>) {

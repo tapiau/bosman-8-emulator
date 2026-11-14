@@ -17,14 +17,15 @@
 //! | OUT 0x80       | scroll register: memory line shown first                 |
 //! | 0x88-0x8B      | 8253: ch0 beep length (clocked by ch1 OUT), ch1 tone, ch2 UART clock |
 //! | 0x8C IN        | keyboard ASCII code (clears the strobe)                   |
-//! | 0x8D IN        | bit7 1 = normal boot, bit6 0 = CAPS, bit5 0 = BREAK, bit4 0 = STOP (paging); idle 0xF0 |
+//! | 0x8D IN        | bit7 1 = normal boot (ROM 90.09.11: 0 = BREAK enters LOCAL), bit6 0 = CAPS, bit5 0 = BREAK, bit4 0 = STOP (paging); idle 0xF0 |
 //! | 0x8E IN        | bit5 key strobe, bit2 frame clock (toggles every frame), bit0 1 = no key held |
 //! | 0x90 / 0x91    | 8251 data / control+status                                |
 //!
 //! Operating modes of the ROM ([`TermMode`]): normal DUPLEX operation, the
 //! BREAK prompt, LOCAL mode and the STOP (page full) wait. The ROM keeps no
 //! RAM flag for them - each is a separate polling loop - so the core tracks
-//! the mode by watching the PC enter those loops. [`Ang3001::set_local`]
+//! the mode by watching the PC enter those loops, whose addresses depend on
+//! the ROM version ([`RomProfile`]). [`Ang3001::set_local`]
 //! performs the BREAK / ESC key sequence that switches LOCAL on or off, the
 //! way a user would.
 
@@ -34,8 +35,8 @@ use b8_chips::{Pit8253, Usart8251};
 use b8_link::{Endpoint, LineParams, Parity, StopBits};
 use iz80::{Cpu, Machine};
 
-/// The ROM image this emulator was written against (`roms/ang3001.bin`).
-pub const DEFAULT_ROM: &[u8] = include_bytes!("../../../roms/ang3001.bin");
+/// The ROM image this emulator was written against (`roms/ang3001/ang3001.bin`).
+pub const DEFAULT_ROM: &[u8] = include_bytes!("../../../roms/ang3001/ang3001.bin");
 
 pub const SCREEN_W: usize = 512;
 pub const SCREEN_H: usize = 256;
@@ -49,14 +50,68 @@ pub const TEXT_X0: usize = 16;
 pub const TEXT_LINE0: usize = 16;
 /// Glyph of character `c` is at `FONT_BASE + 10*c`, 10 rows, pixels in bits 7..2.
 pub const FONT_BASE: usize = 0x3600;
-/// Address of the ROM main loop; reaching it means the boot sequence is done.
-pub const MAIN_LOOP_ADDR: u16 = 0x04BD;
-/// Top of the BREAK prompt loop ("BREAK - powtórz   LOCAL - ESC").
+/// Address of the main loop of the default ROM; reaching it means the boot
+/// sequence is done. Other ROMs: see [`RomProfile`].
+pub const MAIN_LOOP_ADDR: u16 = PROFILE_ZJ_PG.main_loop;
+/// Top of the BREAK prompt loop ("BREAK - powtórz   LOCAL - ESC"), default ROM.
 pub const BREAK_PROMPT_ADDR: u16 = 0x0533;
-/// Top of the LOCAL mode loop (keys go straight to the screen).
-pub const LOCAL_LOOP_ADDR: u16 = 0x0578;
-/// Top of the STOP wait loop in `LF_HANDLER` (page full, "STOP" shown).
-pub const STOP_LOOP_ADDR: u16 = 0x0A23;
+/// Top of the LOCAL mode loop (keys go straight to the screen), default ROM.
+pub const LOCAL_LOOP_ADDR: u16 = PROFILE_ZJ_PG.local_loop;
+/// Top of the STOP wait loop in `LF_HANDLER` (page full, "STOP" shown), default ROM.
+pub const STOP_LOOP_ADDR: u16 = PROFILE_ZJ_PG.stop_loop;
+
+/// ROM-specific addresses of the polling loops the core watches (the ROM
+/// keeps no RAM flag for its operating mode).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RomProfile {
+    pub name: &'static str,
+    /// Main loop; reaching it ends the boot sequence (serial input is held until then).
+    pub main_loop: u16,
+    /// BREAK prompt loop, if the ROM has one.
+    pub break_prompt: Option<u16>,
+    pub local_loop: u16,
+    pub stop_loop: u16,
+    /// LOCAL is entered straight from BREAK while port 0x8D bit 7 = 0 (no
+    /// prompt; with bit 7 = 1 BREAK goes out on the line).
+    pub local_via_bit7: bool,
+    /// Bytes at `main_loop` identifying the ROM.
+    signature: [u8; 4],
+}
+
+/// `ANG3001_ZJ_wersjaPG.BIN` (the default `roms/ang3001/ang3001.bin`).
+pub const PROFILE_ZJ_PG: RomProfile = RomProfile {
+    name: "ZJ wersja PG",
+    main_loop: 0x04BD,
+    break_prompt: Some(0x0533),
+    local_loop: 0x0578,
+    stop_loop: 0x0A23,
+    local_via_bit7: false,
+    signature: [0xDB, 0x91, 0xE6, 0x02], // IN A,(91h); AND 02h
+};
+
+/// `ANG-3001_90.09.11.BIN`.
+pub const PROFILE_90_09_11: RomProfile = RomProfile {
+    name: "90.09.11",
+    main_loop: 0x05CF,
+    break_prompt: None,
+    local_loop: 0x080F,
+    stop_loop: 0x08FB,
+    local_via_bit7: true,
+    signature: [0xDB, 0x91, 0xE6, 0x82], // IN A,(91h); AND 82h (RxRDY | DSR)
+};
+
+impl RomProfile {
+    /// Known profile matching the ROM image.
+    pub fn detect(rom: &[u8]) -> Option<RomProfile> {
+        [PROFILE_ZJ_PG, PROFILE_90_09_11].into_iter().find(|p| {
+            let a = p.main_loop as usize;
+            rom.get(a..a + 4) == Some(&p.signature[..])
+        })
+    }
+}
+
+/// Unknown ROM: serial input is let through after this much emulated time.
+const UNKNOWN_ROM_BOOT_MS: u64 = 1500;
 
 /// What the ROM is doing, derived from which of its loops the CPU is in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -193,6 +248,9 @@ struct Bus {
     key_held: bool,
     break_held: bool,
     break_auto: bool,
+    /// Port 0x8D bit 7 = 0 (ROM 90.09.11: BREAK enters LOCAL instead of
+    /// sending BREAK; at reset it would start the monitor).
+    local_switch: bool,
     caps: bool,
     stop: bool,
     // time
@@ -303,7 +361,7 @@ impl Machine for Bus {
                 k
             }
             0x8D => {
-                let mut v = 0x80;
+                let mut v = if self.local_switch { 0 } else { 0x80 };
                 if !self.caps {
                     v |= 0x40;
                 }
@@ -376,6 +434,7 @@ pub struct Ang3001 {
     /// Bytes injected by the host, delivered to the 8251 after boot.
     inject: VecDeque<u8>,
     booted: bool,
+    profile: Option<RomProfile>,
     mode: TermMode,
     auto: AutoSeq,
     break_sent: bool,
@@ -407,6 +466,7 @@ impl Ang3001 {
             key_held: false,
             break_held: false,
             break_auto: false,
+            local_switch: false,
             caps: false,
             stop: false,
             now: 0,
@@ -427,6 +487,7 @@ impl Ang3001 {
             link: None,
             inject: VecDeque::new(),
             booted: false,
+            profile: RomProfile::detect(rom),
             mode: TermMode::Normal,
             auto: AutoSeq::Idle,
             break_sent: false,
@@ -477,6 +538,7 @@ impl Ang3001 {
         self.mode = TermMode::Normal;
         self.auto = AutoSeq::Idle;
         self.bus.break_auto = false;
+        self.bus.local_switch = false;
         self.break_sent = false;
     }
 
@@ -487,15 +549,19 @@ impl Ang3001 {
         while self.bus.now < end {
             let pc = self.cpu.immutable_registers().pc();
             self.bus.pc = pc;
-            match pc {
-                MAIN_LOOP_ADDR => {
+            if let Some(p) = self.profile {
+                if pc == p.main_loop {
                     self.booted = true;
                     self.mode = TermMode::Normal;
+                } else if Some(pc) == p.break_prompt {
+                    self.mode = TermMode::BreakPrompt;
+                } else if pc == p.local_loop {
+                    self.mode = TermMode::Local;
+                } else if pc == p.stop_loop {
+                    self.mode = TermMode::Stopped;
                 }
-                BREAK_PROMPT_ADDR => self.mode = TermMode::BreakPrompt,
-                LOCAL_LOOP_ADDR => self.mode = TermMode::Local,
-                STOP_LOOP_ADDR => self.mode = TermMode::Stopped,
-                _ => {}
+            } else if !self.booted && self.bus.now >= self.ms(UNKNOWN_ROM_BOOT_MS) {
+                self.booted = true;
             }
             let before = self.cpu.cycle_count();
             self.cpu.execute_instruction(&mut self.bus);
@@ -613,6 +679,13 @@ impl Ang3001 {
         self.bus.stop
     }
 
+    /// Addresses of the loaded ROM's loops, if it is a known one (else the
+    /// mode is not tracked, LOCAL can't be switched automatically and serial
+    /// input is let through after a fixed boot time).
+    pub fn profile(&self) -> Option<RomProfile> {
+        self.profile
+    }
+
     /// Current ROM operating mode (see [`TermMode`]).
     pub fn mode(&self) -> TermMode {
         self.mode
@@ -635,8 +708,12 @@ impl Ang3001 {
     /// main loop (DUPLEX). Does nothing if the mode already matches or a
     /// sequence is still running. Returns whether a sequence was started.
     pub fn set_local(&mut self, on: bool) -> bool {
-        if self.auto != AutoSeq::Idle || !self.booted || self.is_local() == on {
+        if self.auto != AutoSeq::Idle || !self.booted || self.is_local() == on || self.profile.is_none() {
             return false;
+        }
+        if on && self.profile.is_some_and(|p| p.local_via_bit7) {
+            // ROM 90.09.11: no prompt, BREAK with port 0x8D bit 7 = 0 enters LOCAL
+            self.bus.local_switch = true;
         }
         if on && self.mode == TermMode::BreakPrompt {
             // the prompt is already up (BREAK pressed by hand): just answer it
@@ -667,7 +744,9 @@ impl Ang3001 {
             AutoSeq::BreakDown { until, enter } if now >= until => {
                 self.bus.break_auto = false;
                 let deadline = now + self.ms(AUTO_TIMEOUT_MS);
-                if enter {
+                if enter && self.bus.local_switch {
+                    AutoSeq::WaitMode { want: TermMode::Local, deadline }
+                } else if enter {
                     AutoSeq::WaitPrompt { deadline }
                 } else {
                     AutoSeq::WaitMode { want: TermMode::Normal, deadline }
@@ -686,6 +765,7 @@ impl Ang3001 {
             }
             AutoSeq::WaitMode { want, deadline } => {
                 if self.mode == want || now >= deadline {
+                    self.bus.local_switch = false;
                     AutoSeq::Idle
                 } else {
                     self.auto

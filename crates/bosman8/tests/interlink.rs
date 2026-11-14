@@ -32,8 +32,8 @@ impl Endpoint for RecordLine {
 use bosman8::{Bosman8, Config, CPU_HZ};
 
 fn rom() -> Vec<u8> {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../roms/bosman8.bin");
-    std::fs::read(path).expect("roms/bosman8.bin")
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../roms/bosman8/bosman8.bin");
+    std::fs::read(path).expect("roms/bosman8/bosman8.bin")
 }
 
 fn tools_disk() -> Vec<u8> {
@@ -152,12 +152,12 @@ fn remote_drives_over_sio_b() {
 
 #[test]
 fn remote_drives_zj_october_com_server() {
-    remote_drives_scenario(include_bytes!("../../../roms/bosman8-zj-19871020.bin"), "B:BSRV");
+    remote_drives_scenario(include_bytes!("../../../roms/bosman8/bosman8-zj-19871020.bin"), "B:BSRV");
 }
 
 #[test]
 fn remote_drives_zj_march_com_server() {
-    remote_drives_scenario(include_bytes!("../../../roms/bosman8-zj-19870324.bin"), "B:BSRV");
+    remote_drives_scenario(include_bytes!("../../../roms/bosman8/bosman8-zj-19870324.bin"), "B:BSRV");
 }
 
 fn remote_drives_scenario(server_rom: &[u8], start_command: &str) {

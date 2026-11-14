@@ -18,7 +18,7 @@ fn upload(m: &mut Bosman8, link: &mut dyn Endpoint, addr: u16, data: &[u8]) {
 fn debug_installer_creates_verifies_and_refuses_overwrite() {
     let (term, mut console) = b8_link::pair();
     let (aux, mut host) = b8_link::pair();
-    let mut m = Bosman8::new(include_bytes!("../../../roms/bosman8-zj-19871020.bin"),
+    let mut m = Bosman8::new(include_bytes!("../../../roms/bosman8/bosman8-zj-19871020.bin"),
         Config { fast_fdc: true, ..Config::default() }, term, aux);
     let fmt = bosman8::disk::F200;
     let disk = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../disks/narzedzia.img")).unwrap();

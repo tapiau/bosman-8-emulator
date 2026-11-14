@@ -157,3 +157,35 @@ wyjście licznika 1. Start: pisk 0x0EEF (≈340 Hz, A=5Ah), po teście RAM
 Emulator z `--trace-io` loguje dostęp do wszystkich nieobsługiwanych portów
 oraz 0x0A/0x0B. Przy zwykłej pracy (start, tekst, przewijanie, BREAK,
 okna) innych portów ROM nie używa.
+
+## ROM 90.09.11 (`roms/ang3001/ANG-3001_90.09.11.BIN`)  🟢 (kod + test `tests/rom_90_09_11.rs`)
+Nowsza wersja ROM-u (disasm: `../bosman-8-ang-3000-rom/ANG-3001_90.09.11/rom.asm`).
+Obsługuje sekwencje, których używają gry z dyskietki GRY (np. SOKOBAN rysuje
+planszę; na ROM-ie „ZJ wersja PG” wypisuje zamiast grafiki ciąg liczb).
+Emulator rozpoznaje ROM po bajtach pętli głównej (`RomProfile::detect`) i
+bierze z profilu adresy pętli, po których śledzi tryb:
+
+| | ZJ wersja PG (domyślny) | 90.09.11 |
+|---|---|---|
+| pętla główna (koniec startu) | 0x04BD | 0x05CF |
+| zachęta BREAK | 0x0533 | — (brak) |
+| LOCAL | 0x0578 | 0x080F |
+| STOP | 0x0A23 | 0x08FB |
+
+Różnice ważne dla emulatora:
+- **DSR 8251 (status bit 7)**: pętla główna testuje `AND 82h` — DSR aktywny
+  to sygnał „uwagi”: ROM zapisuje stan (7DC0–7DF7), zbiera do 8 bajtów z łącza
+  do bufora 7DF8 i **czeka w pętli `0x0711`, aż DSR zgaśnie**. Stary ROM bitu 7
+  nie czyta. Emulator do 0.4.0 zgłaszał DSR = 1 na stałe, przez co nowy ROM
+  wisiał zaraz po banerze; teraz DSR jest nieaktywny (`Usart8251::set_dsr`).
+- **Port 0x8D bit 7** jest czytany także w trakcie pracy: przy 1 BREAK od razu
+  nadaje BREAK na łącze (komenda 8251 `0Dh`), przy 0 BREAK przełącza w LOCAL
+  (napis „LOCAL”, bez zachęty); kolejny BREAK wraca do pętli głównej. Bit 7 = 0
+  w chwili resetu uruchamia monitor (0x3442, nagłówek „ANG-3000” w 0x3400).
+  Przycisk LOCAL w GUI przy tym ROM-ie ustawia bit 7 = 0 na czas BREAK.
+- Kolejka nadawania w 0x7E00 (wskaźniki 7DF5/7DF6), stos 0x7FC0.
+- Start: `OUT (01h)` po pierwszym opóźnieniu, `OUT (8Fh),BBh` (słowo trybu
+  8255? — porty 0x8C–0x8E to wtedy porty A–C układu) — ignorowane.
+
+ROM nieznany emulatorowi: tryby nie są śledzone, przełączanie LOCAL z GUI
+jest wyłączone, a dane z łącza są przepuszczane po 1,5 s czasu emulacji.

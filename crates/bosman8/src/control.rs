@@ -115,7 +115,7 @@ mod tests {
     use crate::Config;
 
     fn rom() -> Option<Vec<u8>> {
-        std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../roms/bosman8.bin")).ok()
+        std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../roms/bosman8/bosman8.bin")).ok()
     }
 
     fn machine(dip: u8) -> Option<(Bosman8, Box<dyn Endpoint>)> {

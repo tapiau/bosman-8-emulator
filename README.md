@@ -71,6 +71,12 @@ F8 / Scroll Lock = STOP (stronicowanie), F7 = LOCAL wł./wył. Te same funkcje m
 przyciski pod ekranem (RESET, BREAK, LOCAL, STOP, CAPS, TURBO — klikane myszą,
 przełączniki podświetlone, gdy aktywne) i kontrolki LINK / BEEP / WAIT.
 
+ROM terminala: domyślnie wbudowany `roms/ang3001/ang3001.bin` (ZJ wersja PG). Nowszy ROM 90.09.11
+(`ang3001 --rom roms/ang3001/ANG-3001_90.09.11.BIN`) zna więcej sekwencji sterujących — na nim
+gry z dyskietki GRY (np. SOKOBAN) rysują grafikę; na starszym wypisują kody. W 90.09.11 BREAK
+od razu wysyła BREAK na łącze, a LOCAL włącza się przyciskiem / F7 (bez zachęty „BREAK - powtórz”).
+Emulator rozpoznaje wersję ROM-u sam.
+
 ## Dokumentacja
 
 - [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md) — architektura, model łącza
@@ -78,7 +84,9 @@ przełączniki podświetlone, gdy aktywne) i kontrolki LINK / BEEP / WAIT.
 - [doc/bosman8-hardware.md](doc/bosman8-hardware.md) — sprzęt Bosmana ustalony z ROM-u
 - [doc/ang3001-hardware.md](doc/ang3001-hardware.md) — sprzęt terminala
 
-ROM-y (`roms/`) pochodzą z repozytoriów analizy `bosman-8-rom` i `bosman-8-ang-3000-rom`.
+ROM-y pochodzą z repozytoriów analizy `bosman-8-rom` i `bosman-8-ang-3000-rom`, po katalogu na maszynę:
+`roms/bosman8/` (CPM-R `bosman8.bin` i obrazy UNIMOR ZJ), `roms/ang3001/` (terminal: `ang3001.bin` =
+ZJ wersja PG, `ANG-3001_90.09.11.BIN`); miejsce na kolejne terminale (np. `roms/an2001/`).
 
 ## Wydania (Linux / Windows / macOS)
 
@@ -92,8 +100,8 @@ Bosmanów z ROM-ami UNIMOR ZJ, z [instrukcją instalacji](tools/bsrv/README.md).
 Publikacja wydania:
 
 ```sh
-git tag v0.4.0
-git push origin v0.4.0     # → workflow buduje paczki i tworzy Release na GitHubie
+git tag v0.4.1
+git push origin v0.4.1     # → workflow buduje paczki i tworzy Release na GitHubie
 ```
 
 Bez taga: zakładka Actions → Release → „Run workflow” buduje paczki jako

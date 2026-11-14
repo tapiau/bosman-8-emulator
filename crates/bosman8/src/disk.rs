@@ -199,7 +199,7 @@ mod tests {
     /// The tables in the ROM agree with the constants above.
     #[test]
     fn rom_tables() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../roms/bosman8.bin");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../roms/bosman8/bosman8.bin");
         let Ok(rom) = std::fs::read(path) else { return };
         // (table address, drive, format): per drive 20 bytes =
         // 15-byte DPB + PSH, PHM, first sector side 0, side 1, flags.

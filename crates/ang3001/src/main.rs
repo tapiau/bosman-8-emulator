@@ -48,7 +48,7 @@ USAGE: ang3001 [OPTIONS]
 
 OPTIONS:
   --rom FILE          ROM image (default: ang3001_rom from /etc/bosman-8-emulator.conf,
-                      else built-in roms/ang3001.bin)
+                      else built-in roms/ang3001/ang3001.bin)
   --link SPEC         serial line endpoint (default: tcp:127.0.0.1:3001)
                       none | loopback | stdio | tcp:HOST:PORT | tcp-listen:ADDR:PORT
                       | serial:DEV[@BAUD]

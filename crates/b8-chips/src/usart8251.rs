@@ -5,7 +5,7 @@
 //! reset (back to expecting mode). The usual init `00 00 00 40` must work.
 //! Command: bit0 TxEN, bit2 RxEN, bit3 send break, bit4 error reset.
 //! Status: bit0 TxRDY, bit1 RxRDY, bit2 TxEMPTY, bit3 PE, bit4 OE, bit5 FE,
-//! bit6 SYNDET, bit7 DSR (report 1).
+//! bit6 SYNDET, bit7 DSR (the DSR input; inactive = 0 unless [`Usart8251::set_dsr`]).
 //! Timing/queues: same contract as `SioChannel` (char_cycles, take_tx, push_rx).
 //!
 //! Model details:
@@ -46,6 +46,7 @@ pub struct Usart8251 {
     tx_remaining: u32,
     tx_out: VecDeque<u8>,
     break_remaining: u32,
+    dsr: bool,
 }
 
 impl Default for Usart8251 {
@@ -71,7 +72,16 @@ impl Usart8251 {
             tx_remaining: 0,
             tx_out: VecDeque::new(),
             break_remaining: 0,
+            dsr: false,
         }
+    }
+
+    /// DSR input asserted (status bit 7). Nothing drives it on the ANG-3001
+    /// side of the emulated link, so it stays inactive by default: ROM
+    /// 90.09.11 treats an active DSR as an attention signal and waits in a
+    /// loop until it drops (the older ROM never reads the bit).
+    pub fn set_dsr(&mut self, on: bool) {
+        self.dsr = on;
     }
 
     /// Hardware reset. The host-side Rx queue and already transmitted bytes
@@ -120,7 +130,7 @@ impl Usart8251 {
     }
 
     pub fn read_status(&mut self) -> u8 {
-        let mut s = 0x80; // DSR
+        let mut s = if self.dsr { 0x80 } else { 0 };
         if self.tx_buf.is_none() {
             s |= 0x01;
         }
@@ -266,6 +276,8 @@ mod tests {
         assert_eq!(u.clock_divider(), 1);
         assert_eq!(u.bits_per_char(), 8);
         assert!(u.tx_enabled() && u.rx_enabled());
+        assert_eq!(u.read_status(), 0x05);
+        u.set_dsr(true);
         assert_eq!(u.read_status(), 0x85);
     }
 

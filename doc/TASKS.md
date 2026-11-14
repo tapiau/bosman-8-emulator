@@ -14,7 +14,7 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
 - ✅ T1.3 `b8-chips`: 74LS259, 8253, Z80-SIO (tryb bajtowy), 8251
 
 ## Faza 2 — Bosman-8
-- ✅ T2.1 Pamięć: ROM 32 KB / 8 banków RAM 32 KB w dolnej połowie, wspólne górne 32 KB (opcjonalnie ROM 64 KB, Q0 = górna połowa)
+- ✅ T2.1 Pamięć: ROM 32 KB / 8 banków RAM 64 KB przełączających 0000–EFFF, wspólne F000–FFFF (opcjonalnie ROM 64 KB, Q0 = górna połowa)
 - ✅ T2.2 Porty: zatrzask 0x00–0x0F, SIO 0x80–0x83, 8253 0x84–0x87, DIP 0x98, drugi zatrzask 0xF0–0xFF, NMI = INTRQ·Q1
 - ✅ T2.3 Binarka CLI: `--term tcp-listen:…|stdio|serial:…`, `--aux …` (SIO-B), `--trace-io`, `--trace-cpu-from`, `--turbo`
 - ✅ T2.4 Boot do znaku zachęty CCP z RAM-dyskiem A: (test `crates/bosman8/tests/boot.rs`)
@@ -34,6 +34,8 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
 - ✅ T4.1 Bosman ↔ ANG po TCP: znak zachęty `A>` na ekranie terminala
 - ⏳ T4.2 Uruchomienie demek z `bosman-8-ang-3000-rom/demo` (wstrzyknięcie plików na RAM-dysk)
 - ✅ T4.3 Narzędzie `b8disk` (new/ls/put/get/rm) dla obrazów dyskietek 200/400/800 KB; obraz `disks/narzedzia.img`
+- ✅ T4.6 Obrazy Gotka `.hfe` (HxC v1) bezpośrednio w `--disk-b/c`, GUI i `b8disk`; zapis w miejscu (tylko pola danych zmienionych sektorów)
+- ✅ T4.7 ROM terminala ANG-3001 90.09.11 (`--rom roms/ang3001/ANG-3001_90.09.11.BIN`): profile ROM-ów, DSR 8251 nieaktywny; gry z dyskietki GRY (SOKOBAN) rysują grafikę
 
 ## Faza 4b — łącze między Bosmanami
 - ✅ T4.4 Napędy D/E/F przez SIO-B (master ↔ slave `DEBUG`): D/E/F = A/B/C serwera, `DIR`, odczyt (`E:PIP A:=E:STAT.COM`) i zapis działają między dwoma emulatorami (TCP; test `crates/bosman8/tests/interlink.rs`); `--trace-aux`. ❓ rzeczywiste ROM-y UNIMOR ZJ nie mają rozkazu DEBUG 60 (serwer D/E/F); podłączony egzemplarz zidentyfikowany jako 1987-10-20; BSRV.COM dla obu ROM-ów ZJ i instalator przez DEBUG (tools/bsrv); ✅ sprzęt: katalog E:, odczyt/zapis pliku z porównaniem, kasowanie; wymagane 20 ms ochrony TX przed zmianą prędkości USB — zob. [bosman8-interlink.md](bosman8-interlink.md)
@@ -44,6 +46,10 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
 - ⏳ Dźwięk (cpal) w terminalu
 - ⏳ Wersja webowa (WASM + canvas, łącze przez WebSocket albo oba emulatory w jednej stronie)
 - ⏳ Debugger (breakpointy, podgląd pamięci)
+- ⏳ ANG-3001: przełączanie stron obrazu przez zatrzask Q4 (porty 0x08/0x09, oba ROM-y) i Q6 (0x0C/0x0D, tylko 90.09.11) — dziś ignorowane; hipoteza: druga strona w 0xC000
+- ⏳ Bosman `--term stdio`: polecenie wpisane w trakcie pracy programu ginie po ciepłym starcie (bez `--fixed-baud` całe wejście po pierwszym ciepłym starcie) — było tak też przed 0.4.1
+- ❓ ANG-3001: czy DSR 8251 jest na płycie do czegoś podłączony (ROM 90.09.11 używa go jako sygnału „uwagi”)
+- ❓ Czy domyślnym ROM-em terminala ma zostać ZJ wersja PG, czy 90.09.11
 
 ## Dziennik
 (uzupełniany na bieżąco — najnowsze na dole)
@@ -83,3 +89,24 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
 - 2026-11-13: T4.5 — `Endpoint::set_line_params`; Bosman (SIO-A/B) i ANG (8251) przekazują zaprogramowaną prędkość
   i format, `serial:` przestawia port hosta. Sprawdzone na PL2303HX: 9615 / 20833 / 100000 bit/s dokładnie.
   Odkrycie: łącze Bosman ↔ ANG to async 100000 8N2 (SIO-A WR4=0Ch), nie tryb synchroniczny.
+- 2026-11-14: wydania 0.3.2 (runnery macOS 15 / Node 24 — v0.3.0 i v0.3.1 nie zostały opublikowane, ich buildy
+  anulowano) i 0.4.0: T4.6 obrazy Gotka `.hfe` (moduł `crates/bosman8/src/hfe.rs`, kontener w `disk.rs`). Odczyt:
+  dekodowanie MFM z CRC, pamiętana pozycja pola danych każdego sektora; zapis: przekodowanie tylko pola danych + CRC
+  w miejscu, reszta ścieżki bit w bit. Zły format (np. 200 KB przy zworkach 400 KB) → zabezpieczona przed zapisem
+  z podpowiedzią. Sprawdzone na `DSKA0001_B8_GRY_COM.hfe` (gry na B:, `SAVE` w CP/M zapisuje się do `.hfe`).
+- 2026-11-14: poprawka T2.1 — banki RAM Bosmana mają 64 KB i przełączają 0000–EFFF, wspólne jest tylko F000–FFFF
+  (dowody: baner RAM=512 KB i TPA=60 KB, adresowanie RAM-dysku 0x0892 do 0xEFFF). Wcześniej przełączane było tylko
+  0000–7FFF, więc `.COM` > ~34 KB nadpisywał zmienne CCP w 0x8800: BLOCK.COM ustawiał bit 0 bajtu 0x8810 (flaga
+  `DEBUG`) i CCP wypisywał `Program 0100-A37F` zamiast uruchomić grę; SZACHY psuł znak zachęty (`A5>`). Szczegóły
+  w [bosman8-hardware.md](bosman8-hardware.md) (sekcja „Pamięć”).
+- 2026-11-14: T4.7 — ROM ANG-3001 90.09.11 wieszał się po banerze: pętla główna testuje `AND 82h` statusu 8251,
+  a aktywny DSR (emulator zgłaszał 1 na stałe) to w nim sygnał „uwagi” z pętlą czekania na zgaśnięcie DSR (0x0711).
+  DSR jest teraz nieaktywny (`Usart8251::set_dsr`); stary ROM bitu 7 nie czyta. Adresy pętli (koniec startu, BREAK,
+  LOCAL, STOP) zależą od ROM-u → `RomProfile` wykrywany po bajtach pętli głównej (stary 04BD/0533/0578/0A23, nowy
+  05CF/—/080F/08FB). W 90.09.11 BREAK przy bicie 7 portu 0x8D = 0 wchodzi w LOCAL bez zachęty; automat GUI to
+  uwzględnia. Porównanie portów obu ROM-ów: nowy używa nadzbioru (dodatkowo DSR i Q6 zatrzasku 0x0C/0x0D), więc
+  stary ROM działa na nowszym sprzęcie bez zmian. SOKOBAN: na 90.09.11 pełna plansza, na starym ciąg liczb (brak
+  sekwencji w ROM-ie). Test `crates/ang3001/tests/rom_90_09_11.rs`, opis w [ang3001-hardware.md](ang3001-hardware.md).
+- 2026-11-14: ROM-y podzielone na katalogi maszyn: `roms/bosman8/`, `roms/ang3001/` (miejsce na `roms/an2001/`).
+  `bosman8` szuka też starej ścieżki `roms/bosman8.bin`; paczka `.deb` zostawia dowiązania pod starymi nazwami, bo
+  `/etc/bosman-8-emulator.conf` z wcześniejszych wersji (conffile) może na nie wskazywać. Wydanie 0.4.1.

@@ -35,14 +35,24 @@ wszystkie bity = 0.
 Procedura `F30F` (kopia z ROM 0x2E0F): `C=6: RRCA, RL C, OUT (C),A` itd. —
 rozkłada 3 młodsze bity A na Q6, Q4, Q5. A=FF → bank domyślny z `F26B`.
 
-## Pamięć  🟡
+## Pamięć  🟢 (banki 64 KB) / 🟡 (Q0)
 - **0x0000–0x7FFF**: odczyt — ROM (gdy Q7=0) albo RAM wybranego banku (Q7=1).
   **Zapis zawsze idzie do RAM wybranego banku** (także gdy ROM jest widoczny) —
   kod RAM-dysku (0x085D) wykonywany z ROM robi `LDIR` do adresów < 0x8000 po
   wybraniu banku, a `READ_CONFIG` (0x03FF) zapisuje markery pod adres 0 przy
   widocznym ROM i odczytuje je przez `F458` (`OUT(0F); LD A,(HL)`).
-- **8 banków × 32 KB** (3 bity). Bank 0 = TPA.
-- **0x8000–0xFFFF**: stałe 32 KB RAM (BIOS w F200, zmienne, bufory).
+- **8 banków × 64 KB** (3 bity), bank przełącza cały obszar **0x0000–0xEFFF**
+  (0x8000–0xEFFF niezależnie od Q7). Bank 0 = TPA (60 KB, 0000–EFFF); w banku
+  systemowym (domyślny z `F26B`, przy pracy CCP) 0x8800–0x88FF to zmienne CCP
+  (`IX = 8864`, flaga `DEBUG` = bit 0 bajtu `8810`).
+- **0xF000–0xFFFF**: wspólne 4 KB (trampoliny `F006`/`F060`, BIOS w F200,
+  `F26B`, bufor RAM-dysku `F100`, stos CCP `F0B8`).
+- Dowody: baner „RAM=512 KB” (8 × 64 KB) i „TPA=60 KB”; RAM-dysk (0x0892)
+  adresuje sektory jako `ścieżka/2 (+ 0x7800)`, czyli 0000–EFFF banku, i kopiuje
+  przez bufor w F100; loader CCP (0x4255) czyta `.COM` rekordami przez BDOS aż do
+  DMA = F000 — przy wspólnym 8000–FFFF program > ~34 KB nadpisałby zmienne CCP
+  (objaw: `Program 0100-A37F` zamiast startu gry, gdy bajt programu pod 8810 ma
+  ustawiony bit 0 — np. BLOCK.COM). Do 0.4.0 emulator przełączał tylko 0000–7FFF.
 - `READ_CONFIG` testuje banki 0/1 i 4/5; `F437 = 2*R(4)+R(0)-1`. Przy pełnej
   pamięci R=2 → F437=5 → ścieżka z banerem. Emulator domyślnie: 8 banków.
 - Odczyt adresu 0 jako detekcja stanu: `25h` = ROM (Q0=0), `A5h` = ROM przy

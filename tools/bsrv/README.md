@@ -2,7 +2,7 @@
 
 Program CP/M dla ROM-ów ZJ 1987-03-24 i ZJCPMR 2311 1987-10-20.
 Udostępnia A:/B:/C: klientowi z ROM-em SAJ jako D:/E:/F: po SIO-B.
-Nie wymaga zmiany EPROM-u. Binarne obrazy ZJ w `roms/` są kopiami plików
+Nie wymaga zmiany EPROM-u. Binarne obrazy ZJ w `roms/bosman8/` są kopiami plików
 użytkownika z sąsiedniego repozytorium `bosman-8-rom`, użytymi w testach.
 
 ## Uruchomienie

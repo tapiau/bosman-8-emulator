@@ -33,7 +33,16 @@ for b in bosman8 ang3001 b8disk; do
   install -m 755 "$BIN_DIR/$b" "$D/usr/bin/$b"
   strip --strip-unneeded "$D/usr/bin/$b" 2>/dev/null || true
 done
-install -m 644 roms/*.bin "$D/usr/share/$PKG/roms/"
+# roms/<machine>/ (bosman8, ang3001, later an2001)
+for m in roms/*/; do
+  m=$(basename "$m")
+  install -d "$D/usr/share/$PKG/roms/$m"
+  install -m 644 roms/$m/* "$D/usr/share/$PKG/roms/$m/"
+done
+# Old flat paths: /etc/bosman-8-emulator.conf is a conffile, so configs from
+# versions before 0.4.1 may still point at roms/bosman8.bin / roms/ang3001.bin.
+ln -s bosman8/bosman8.bin "$D/usr/share/$PKG/roms/bosman8.bin"
+ln -s ang3001/ang3001.bin "$D/usr/share/$PKG/roms/ang3001.bin"
 install -m 644 disks/* "$D/usr/share/$PKG/disks/"
 install -m 644 README.md "$D/usr/share/doc/$PKG/"
 install -m 644 doc/*.md "$D/usr/share/doc/$PKG/doc/"

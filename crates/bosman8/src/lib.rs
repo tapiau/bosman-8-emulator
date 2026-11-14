@@ -1,5 +1,6 @@
 //! Bosman-8 (DZM-180) machine core: Z80A @ 4 MHz, CPM-R in a 32 KB EPROM,
-//! 8 × 32 KB banked RAM + 32 KB fixed RAM, Z80-SIO, 8253, WD1770, port 0x98.
+//! 8 × 64 KB RAM banks (0000–EFFF banked, F000–FFFF common), Z80-SIO, 8253,
+//! WD1770, port 0x98.
 //!
 //! Pure logic: no threads, sockets or wall clock (so it can compile to WASM).
 //! The application drives time with [`Bosman8::run_cycles`] and drains the
@@ -26,9 +27,12 @@ pub const PIT_HZ: u32 = 2_000_000;
 /// Size of the EPROM as dumped (27256). A 64 KB image (27512) is accepted
 /// too: latch Q0 then selects its upper half (see `Bus::peek`).
 pub const ROM_SIZE: usize = 0x8000;
-/// Number of 32 KB RAM banks in 0000–7FFF.
+/// Number of 64 KB RAM banks (each switches 0000–EFFF).
 pub const BANKS: usize = 8;
-const BANK_SIZE: usize = 0x8000;
+/// Start of the RAM common to all banks (BIOS, trampolines, buffers).
+pub const COMMON: usize = 0xF000;
+/// Banked part of each bank: 0000–EFFF (60 KB; 0000–7FFF reads ROM while Q7 = 0).
+const BANK_SIZE: usize = COMMON;
 /// How often (in CPU cycles) the serial endpoints are polled.
 const PUMP_CYCLES: u64 = 1000;
 /// Receiver hold-off after the baud-rate clock of a SIO channel (8253
@@ -249,9 +253,9 @@ fn line_params(ch: &SioChannel, clock_hz: Option<f64>) -> Option<LineParams> {
 impl Machine for Bus {
     fn peek(&mut self, address: u16) -> u8 {
         let a = address as usize;
-        if a >= 0x8000 {
-            self.high[a - 0x8000]
-        } else if self.latch.bit(7) {
+        if a >= COMMON {
+            self.high[a - COMMON]
+        } else if a >= 0x8000 || self.latch.bit(7) {
             self.banks[self.bank() * BANK_SIZE + a]
         } else if self.latch.bit(0) && self.rom.len() > ROM_SIZE {
             // Q0 = EPROM A15 (hypothesis): upper half of a 64 KB image.
@@ -263,8 +267,8 @@ impl Machine for Bus {
 
     fn poke(&mut self, address: u16, value: u8) {
         let a = address as usize;
-        if a >= 0x8000 {
-            self.high[a - 0x8000] = value;
+        if a >= COMMON {
+            self.high[a - COMMON] = value;
         } else {
             let i = self.bank() * BANK_SIZE + a;
             self.banks[i] = value;
@@ -389,7 +393,7 @@ impl Bosman8 {
         let bus = Bus {
             rom: r,
             banks: vec![0; BANKS * BANK_SIZE],
-            high: vec![0; 0x8000],
+            high: vec![0; 0x10000 - COMMON],
             latch: Latch259::new(),
             latch2: Latch259::new(),
             sio: Sio::new(),

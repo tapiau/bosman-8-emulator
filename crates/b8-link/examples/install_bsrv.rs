@@ -50,7 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut hello = [0; 2];
     port.read_exact(&mut hello)?;
     if hello != [0x80, 0x88] { return Err(format!("unexpected DEBUG greeting: {hello:02X?}").into()); }
-    let rom = include_bytes!("../../../roms/bosman8-zj-19871020.bin");
+    let rom = include_bytes!("../../../roms/bosman8/bosman8-zj-19871020.bin");
     if read(port.as_mut(), 0xf4a4, 32)? != rom[0x13a4..0x13c4] {
         return Err("BIOS is not the supported ZJ 1987-10-20; no memory written".into());
     }
