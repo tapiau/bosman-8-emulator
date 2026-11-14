@@ -85,8 +85,8 @@ Bosmanów z ROM-ami UNIMOR ZJ, z [instrukcją instalacji](tools/bsrv/README.md).
 Publikacja wydania:
 
 ```sh
-git tag v0.3.1
-git push origin v0.3.1     # → workflow buduje paczki i tworzy Release na GitHubie
+git tag v0.3.2
+git push origin v0.3.2     # → workflow buduje paczki i tworzy Release na GitHubie
 ```
 
 Bez taga: zakładka Actions → Release → „Run workflow” buduje paczki jako

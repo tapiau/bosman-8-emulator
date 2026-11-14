@@ -64,7 +64,7 @@ checksum = "fc7eb209b1518d6bb87b283c20095f5228ecda460da70b44f0802523dea6da04"
 
 [[package]]
 name = "ang3001"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "b8-chips",
  "b8-link",
@@ -293,11 +293,11 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "b8-chips"
-version = "0.3.1"
+version = "0.3.2"
 
 [[package]]
 name = "b8-link"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "libc",
  "serialport",
@@ -366,7 +366,7 @@ dependencies = [
 
 [[package]]
 name = "bosman8"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "b8-chips",
  "b8-link",
