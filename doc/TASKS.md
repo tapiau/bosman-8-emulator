@@ -220,3 +220,5 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
   składany przy rysowaniu. Komunikaty wątku komputera i CLI były już po angielsku. Skróty `.desktop`: angielskie
   `GenericName`/`Comment` + warianty `[pl]`. Sprawdzone zrzutami panelu w obu językach; test `i18n::parse_and_switch`.
 - 2026-11-14: wydanie 0.5.1 — język interfejsu (T4.11); testy workspace 146/0 przed wydaniem.
+- 2026-11-14: wydanie 0.5.1 opublikowane i sprawdzone: buildy i CI na 3 systemach OK, 6 plików wydania, skróty w
+  `.deb` z polskimi wariantami `Comment[pl]`.
