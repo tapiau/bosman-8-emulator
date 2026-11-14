@@ -222,3 +222,8 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
 - 2026-11-14: wydanie 0.5.1 — język interfejsu (T4.11); testy workspace 146/0 przed wydaniem.
 - 2026-11-14: wydanie 0.5.1 opublikowane i sprawdzone: buildy i CI na 3 systemach OK, 6 plików wydania, skróty w
   `.deb` z polskimi wariantami `Comment[pl]`.
+- 2026-11-14: README — zrzut okna (`doc/images/bosman8-full.png`): tryb full, SOKOBAN z dyskietki GRY na ekranie
+  terminala, panel po angielsku. Do jego zrobienia dodana opcja `--type TEXT` w trybie full (jak w trybie terminal:
+  wpisuje tekst na klawiaturze terminala po starcie; `computer --no-gui` ją przyjmuje i ignoruje). `.deb` instaluje
+  też `doc/images/`.
+- 2026-11-14: wydanie 0.5.2 — zrzut okna w README, `--type` w trybie full, obrazki w `.deb`; testy workspace 146/0.

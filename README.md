@@ -13,6 +13,11 @@ w trzech trybach:
 Uruchomione osobno `bosman8 computer` i `bosman8 terminal` łączą się same po TCP
 127.0.0.1:3001 — dwa okna, jak w wersjach sprzed 0.5.
 
+![Bosman-8 w trybie full: SOKOBAN z dyskietki GRY na ekranie wbudowanego terminala ANG-3001, obok panel ustawień komputera](doc/images/bosman8-full.png)
+
+*`bosman8 --disk-b GRY.hfe --type '\rB:\rSOKOBAN\r'` — SOKOBAN z dyskietki Gotka (`.hfe`) na ekranie
+wbudowanego terminala, obok panel ustawień komputera (interfejs domyślnie po angielsku).*
+
 ## Szybki start
 
 ```sh
@@ -154,8 +159,8 @@ Bosmanów z ROM-ami UNIMOR ZJ, z [instrukcją instalacji](tools/bsrv/README.md).
 Publikacja wydania:
 
 ```sh
-git tag v0.5.1
-git push origin v0.5.1     # → workflow buduje paczki i tworzy Release na GitHubie
+git tag v0.5.2
+git push origin v0.5.2     # → workflow buduje paczki i tworzy Release na GitHubie
 ```
 
 Bez taga: zakładka Actions → Release → „Run workflow” buduje paczki jako

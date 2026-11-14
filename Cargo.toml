@@ -4,7 +4,7 @@ members = ["crates/b8-link", "crates/b8-chips", "crates/bosman8", "crates/ang300
 
 [workspace.package]
 edition = "2021"
-version = "0.5.1"
+version = "0.5.2"
 license = "MIT"
 
 [workspace.dependencies]

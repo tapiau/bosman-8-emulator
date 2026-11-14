@@ -42,6 +42,7 @@ struct GuiArgs {
     terminal_rom: Option<PathBuf>,
     arrows: Option<ang3001::ArrowMode>,
     lang: Option<i18n::Lang>,
+    typed: Vec<u8>,
 }
 
 fn parse_args(cli: &[String]) -> Result<GuiArgs, String> {
@@ -57,6 +58,7 @@ fn parse_args(cli: &[String]) -> Result<GuiArgs, String> {
         terminal_rom: None,
         arrows: None,
         lang: None,
+        typed: Vec::new(),
     };
     let mut it = cli.iter().cloned();
     while let Some(arg) = it.next() {
@@ -82,6 +84,7 @@ fn parse_args(cli: &[String]) -> Result<GuiArgs, String> {
             "--printer" => a.printer = Some(val()?.into()),
             "--turbo" => a.turbo = true,
             "--terminal-rom" => a.terminal_rom = Some(val()?.into()),
+            "--type" => a.typed.extend(val()?.replace("\\r", "\r").bytes()),
             "--lang" => {
                 let v = val()?;
                 a.lang = Some(i18n::Lang::parse(&v).ok_or_else(|| format!("--lang: unknown language '{v}' (en, pl)"))?);
@@ -241,7 +244,8 @@ pub fn run(mode: Mode, cli: &[String]) -> ExitCode {
         Mode::Full => ("Bosman-8", [1024.0 + if cfg.panel_open { 400.0 } else { 0.0 }, 820.0]),
         _ => ("Bosman-8 (computer)", [1100.0, 760.0]),
     };
-    open_window(app::App::new(mode, cfg, config_path, app::TermOpts::default()), title, size)
+    let opts = app::TermOpts { typed: args.typed, ..app::TermOpts::default() };
+    open_window(app::App::new(mode, cfg, config_path, opts), title, size)
 }
 
 #[cfg(test)]

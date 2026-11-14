@@ -38,6 +38,7 @@ OPTIONS (full / computer):
   --lang LANG            interface language: en (default) or pl (also \"lang\" in
                          the settings file and the selector in the side panel)
   --terminal-rom PATH    full: ROM of the terminal (default: built-in 90.09.11)
+  --type TEXT            full: type TEXT on the terminal keyboard after boot (\\r = Enter)
   --arrows MODE          full: what the arrow keys send (numpad, vt52, wordstar,
                          vim, none/off; see bosman8 terminal --help)
   --rom PATH             ROM image (default: bosman8_rom from /etc/bosman-8-emulator.conf,
@@ -142,7 +143,7 @@ fn parse_args(cli: &[String]) -> Result<Args, String> {
                 a.max_seconds = Some(v.parse().map_err(|_| format!("invalid number '{v}'"))?)
             }
             "--no-gui" => {}
-            "--lang" | "--terminal-rom" | "--arrows" => {
+            "--lang" | "--terminal-rom" | "--arrows" | "--type" => {
                 val()?; // window settings; nothing to do on the command line
             }
             "--config" => drop(val()?), // GUI only
