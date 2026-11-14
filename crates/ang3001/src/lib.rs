@@ -31,6 +31,9 @@
 
 use std::collections::VecDeque;
 
+mod keys;
+pub use keys::{char_code, ctrl_code, parse_color, ArrowMode};
+
 use b8_chips::{Pit8253, Usart8251};
 use b8_link::{Endpoint, LineParams, Parity, StopBits};
 use iz80::{Cpu, Machine};

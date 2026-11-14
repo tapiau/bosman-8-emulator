@@ -2,8 +2,10 @@
 Type=Application
 Name=Bosman-8
 GenericName=Emulator mikrokomputera Bosman-8
-Comment=Emulator Bosman-8 (DZM-180, CPM-R) — napędy, porty szeregowe i równoległy
+Comment=Bosman-8 (DZM-180, CPM-R) z terminalem ANG-3001 w jednym oknie
 Exec=bosman8
+Icon=bosman8
+StartupWMClass=bosman8
 Terminal=false
 Categories=System;Emulator;
-Keywords=Bosman;CP/M;CPM-R;Z80;emulator;
+Keywords=Bosman;CP/M;CPM-R;Z80;ANG;emulator;

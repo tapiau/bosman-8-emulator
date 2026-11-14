@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>Bosman-8 (small sizes)</title>
+  <g fill="#a8642c" stroke="#3a1f0c" stroke-width="6"><g transform="rotate(0 128 128)"><rect x="116" y="8" width="24" height="34" rx="12"/></g><g transform="rotate(45 128 128)"><rect x="116" y="8" width="24" height="34" rx="12"/></g><g transform="rotate(90 128 128)"><rect x="116" y="8" width="24" height="34" rx="12"/></g><g transform="rotate(135 128 128)"><rect x="116" y="8" width="24" height="34" rx="12"/></g><g transform="rotate(180 128 128)"><rect x="116" y="8" width="24" height="34" rx="12"/></g><g transform="rotate(225 128 128)"><rect x="116" y="8" width="24" height="34" rx="12"/></g><g transform="rotate(270 128 128)"><rect x="116" y="8" width="24" height="34" rx="12"/></g><g transform="rotate(315 128 128)"><rect x="116" y="8" width="24" height="34" rx="12"/></g></g>
+  <g stroke="#3a1f0c" stroke-width="26" stroke-linecap="round"><line x1="128.0" y1="88.0" x2="128.0" y2="32.0"/><line x1="156.3" y1="99.7" x2="195.9" y2="60.1"/><line x1="168.0" y1="128.0" x2="224.0" y2="128.0"/><line x1="156.3" y1="156.3" x2="195.9" y2="195.9"/><line x1="128.0" y1="168.0" x2="128.0" y2="224.0"/><line x1="99.7" y1="156.3" x2="60.1" y2="195.9"/><line x1="88.0" y1="128.0" x2="32.0" y2="128.0"/><line x1="99.7" y1="99.7" x2="60.1" y2="60.1"/></g>
+  <g stroke="#a8642c" stroke-width="14" stroke-linecap="round"><line x1="128.0" y1="88.0" x2="128.0" y2="32.0"/><line x1="156.3" y1="99.7" x2="195.9" y2="60.1"/><line x1="168.0" y1="128.0" x2="224.0" y2="128.0"/><line x1="156.3" y1="156.3" x2="195.9" y2="195.9"/><line x1="128.0" y1="168.0" x2="128.0" y2="224.0"/><line x1="99.7" y1="156.3" x2="60.1" y2="195.9"/><line x1="88.0" y1="128.0" x2="32.0" y2="128.0"/><line x1="99.7" y1="99.7" x2="60.1" y2="60.1"/></g>
+  <circle cx="128" cy="128" r="84" fill="none" stroke="#3a1f0c" stroke-width="34"/>
+  <circle cx="128" cy="128" r="84" fill="none" stroke="#b06a30" stroke-width="22"/>
+  <circle cx="128" cy="128" r="54" fill="#e2b23a" stroke="#3a1f0c" stroke-width="8"/>
+  <g fill="none" stroke="#14213d" stroke-width="13">
+    <ellipse cx="128" cy="110" rx="14" ry="13"/>
+    <ellipse cx="128" cy="144" rx="18" ry="17"/>
+  </g>
+</svg>

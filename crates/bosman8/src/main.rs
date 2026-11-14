@@ -1,4 +1,10 @@
-//! `bosman8` — front end of the Bosman-8 emulator: GUI window (feature `gui`, default) or headless CLI (`--no-gui`).
+//! `bosman8` — the Bosman-8 emulator: one program, three modes.
+//!
+//! * `bosman8 [full]` — computer and ANG-3001 terminal in one window;
+//! * `bosman8 computer` — the computer only (SIO-A on TCP / a serial port …),
+//!   `--no-gui` without a window;
+//! * `bosman8 terminal` — the terminal only (also when called as `ang3001`),
+//!   `--headless` without a window.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -9,16 +15,34 @@ use bosman8::{disk, Bosman8, Config, CPU_HZ};
 
 #[cfg(feature = "gui")]
 mod gui;
+mod terminal_cli;
 
 const USAGE: &str = "\
-usage: bosman8 [options]
-  --no-gui               headless (command line) mode; without it a GUI window
-                         opens and the options below pre-set its settings
-  --config PATH          GUI settings file (default: <config dir>/bosman8/gui.json)
+usage: bosman8 [full|computer|terminal] [options]
+
+MODES:
+  full                   default: the computer and the ANG-3001 terminal in one
+                         window, connected in memory (RTS/CTS)
+  computer               the computer only; SIO-A goes to --term (TCP listener
+                         127.0.0.1:3001 by default — start \"bosman8 terminal\" in a
+                         second window, or a real terminal on a serial port)
+  terminal               the terminal only (e.g. for a real Bosman on a serial
+                         port); options: bosman8 terminal --help. Calling the
+                         program as \"ang3001\" (link) is the same.
+
+OPTIONS (full / computer):
+  --no-gui               computer without a window (command line); \"bosman8 --no-gui\"
+                         without a mode is the same
+  --config PATH          GUI settings file (default: <config dir>/bosman8/full.json
+                         or computer.json)
+  --terminal-rom PATH    full: ROM of the terminal (default: built-in 90.09.11)
+  --arrows MODE          full: what the arrow keys send (numpad, vt52, wordstar,
+                         vim, none/off; see bosman8 terminal --help)
   --rom PATH             ROM image (default: bosman8_rom from /etc/bosman-8-emulator.conf,
                          else roms/bosman8/bosman8.bin here or next to the executable,
                          else the built-in 32 KB CPM-R ROM)
-  --term SPEC            terminal line, SIO-A (default tcp-listen:127.0.0.1:3001)
+  --term SPEC            terminal line, SIO-A (full: the built-in terminal,
+                         \"terminal\"; computer: tcp-listen:127.0.0.1:3001)
   --aux SPEC             V.24 line, SIO-B (default none)
                          SPEC: none | loopback | stdio | tcp-listen:ADDR:PORT |
                                tcp:HOST:PORT[,raw] | serial:DEV[@BAUD][,8N2][,rtscts]
@@ -63,7 +87,7 @@ struct Args {
     max_seconds: Option<f64>,
 }
 
-fn parse_args() -> Result<Args, String> {
+fn parse_args(cli: &[String]) -> Result<Args, String> {
     let mut a = Args {
         rom: None,
         term: "tcp-listen:127.0.0.1:3001".into(),
@@ -80,7 +104,7 @@ fn parse_args() -> Result<Args, String> {
         printer: None,
         max_seconds: None,
     };
-    let mut it = std::env::args().skip(1);
+    let mut it = cli.iter().cloned();
     while let Some(arg) = it.next() {
         let (name, inline) = match arg.split_once('=') {
             Some((n, v)) if n.starts_with("--") => (n.to_string(), Some(v.to_string())),
@@ -186,8 +210,11 @@ fn load_disk(path: &Path, format: disk::Format) -> Result<(b8_chips::DiskImage, 
     }
 }
 
-fn run() -> Result<(), String> {
-    let mut args = parse_args()?;
+fn run(cli: &[String]) -> Result<(), String> {
+    let mut args = parse_args(cli)?;
+    if args.term == "terminal" {
+        return Err("--term terminal (the built-in terminal) needs the window: run without --no-gui".into());
+    }
     if args.disk_c.is_some() && args.dip & 0x40 != 0 {
         if args.dip_explicit {
             eprintln!("bosman8: warning: DIP bit 6 is set, the ROM won't initialise drive C:");
@@ -291,21 +318,126 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
+/// Mode and its arguments from the command line: the first argument may name
+/// the mode; called as `ang3001` (a link to this program) means "terminal".
+fn select_mode(argv0: &str, args: &[String]) -> (Mode, Vec<String>) {
+    let prog = std::path::Path::new(argv0).file_stem().map(|s| s.to_string_lossy().to_ascii_lowercase());
+    if prog.as_deref() == Some("ang3001") {
+        return (Mode::Terminal, args.to_vec());
+    }
+    match args.first().and_then(|a| Mode::parse(a)) {
+        Some(m) => (m, args[1..].to_vec()),
+        None => (Mode::Full, args.to_vec()),
+    }
+}
+
+/// Program mode (see `--help`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// Computer and terminal in one window, connected in memory.
+    Full,
+    Computer,
+    Terminal,
+}
+
+impl Mode {
+    /// Mode named on the command line.
+    pub fn parse(s: &str) -> Option<Mode> {
+        match s.to_ascii_lowercase().as_str() {
+            "full" => Some(Mode::Full),
+            "computer" => Some(Mode::Computer),
+            "terminal" => Some(Mode::Terminal),
+            _ => None,
+        }
+    }
+
+    /// Settings file of the mode's window.
+    #[cfg_attr(not(feature = "gui"), allow(dead_code))]
+    pub fn file_name(self) -> &'static str {
+        match self {
+            Mode::Full => "full.json",
+            Mode::Computer => "computer.json",
+            Mode::Terminal => "terminal.json",
+        }
+    }
+
+    #[cfg_attr(not(feature = "gui"), allow(dead_code))]
+    pub fn has_computer(self) -> bool {
+        self != Mode::Terminal
+    }
+
+    #[cfg_attr(not(feature = "gui"), allow(dead_code))]
+    pub fn has_terminal(self) -> bool {
+        self != Mode::Computer
+    }
+}
+
+fn fail(e: String) -> ExitCode {
+    eprintln!("bosman8: {e}");
+    ExitCode::FAILURE
+}
+
 fn main() -> ExitCode {
-    let gui = !std::env::args().skip(1).any(|a| matches!(a.as_str(), "--no-gui" | "-h" | "--help"));
+    let mut argv = std::env::args();
+    let argv0 = argv.next().unwrap_or_default();
+    let all: Vec<String> = argv.collect();
+    let (mode, args) = select_mode(&argv0, &all);
+    let help = args.iter().any(|a| matches!(a.as_str(), "-h" | "--help"));
+
+    if mode == Mode::Terminal {
+        let o = match terminal_cli::parse(&args) {
+            Ok(Some(o)) => o,
+            Ok(None) => return ExitCode::SUCCESS,
+            Err(e) => return fail(e),
+        };
+        if o.headless {
+            return match terminal_cli::headless(&o) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => fail(e),
+            };
+        }
+        #[cfg(feature = "gui")]
+        return gui::run_terminal(o);
+        #[cfg(not(feature = "gui"))]
+        return fail("built without the GUI (feature \"gui\"): use --headless".into());
+    }
+
+    // "bosman8 --no-gui" without a mode = the computer on the command line, as before.
+    let no_gui = args.iter().any(|a| a == "--no-gui");
+    if help {
+        println!("{USAGE}");
+        return ExitCode::SUCCESS;
+    }
     #[cfg(feature = "gui")]
-    if gui {
-        return gui::run();
+    if !no_gui {
+        return gui::run(mode, &args);
     }
     #[cfg(not(feature = "gui"))]
-    if gui {
-        eprintln!("bosman8: built without the GUI (feature \"gui\"), running headless");
+    if !no_gui {
+        eprintln!("bosman8: built without the GUI (feature \"gui\"), running the computer headless");
     }
-    match run() {
+    match run(&args) {
         Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            eprintln!("bosman8: {e}");
-            ExitCode::FAILURE
-        }
+        Err(e) => fail(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn v(s: &str) -> Vec<String> {
+        s.split_whitespace().map(String::from).collect()
+    }
+
+    #[test]
+    fn mode_selection() {
+        assert_eq!(select_mode("bosman8", &v("")), (Mode::Full, v("")));
+        assert_eq!(select_mode("/usr/bin/bosman8", &v("computer --dip 08")), (Mode::Computer, v("--dip 08")));
+        assert_eq!(select_mode("bosman8", &v("terminal --link x")), (Mode::Terminal, v("--link x")));
+        assert_eq!(select_mode("bosman8", &v("full")), (Mode::Full, v("")));
+        assert_eq!(select_mode("bosman8.exe", &v("--disk-b b.img")), (Mode::Full, v("--disk-b b.img")));
+        // called through the ang3001 link: terminal, all arguments are its options
+        assert_eq!(select_mode("/usr/bin/ang3001", &v("--headless --after 2")), (Mode::Terminal, v("--headless --after 2")));
     }
 }

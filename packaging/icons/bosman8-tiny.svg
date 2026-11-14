@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>Bosman-8 (16 px)</title>
+  <g fill="#a8642c" stroke="#3a1f0c" stroke-width="8"><g transform="rotate(0 128 128)"><rect x="112" y="4" width="32" height="40" rx="14"/></g><g transform="rotate(45 128 128)"><rect x="112" y="4" width="32" height="40" rx="14"/></g><g transform="rotate(90 128 128)"><rect x="112" y="4" width="32" height="40" rx="14"/></g><g transform="rotate(135 128 128)"><rect x="112" y="4" width="32" height="40" rx="14"/></g><g transform="rotate(180 128 128)"><rect x="112" y="4" width="32" height="40" rx="14"/></g><g transform="rotate(225 128 128)"><rect x="112" y="4" width="32" height="40" rx="14"/></g><g transform="rotate(270 128 128)"><rect x="112" y="4" width="32" height="40" rx="14"/></g><g transform="rotate(315 128 128)"><rect x="112" y="4" width="32" height="40" rx="14"/></g></g>
+  <circle cx="128" cy="128" r="88" fill="#3a1f0c"/>
+  <circle cx="128" cy="128" r="78" fill="#a8642c"/>
+  <circle cx="128" cy="128" r="68" fill="#e2b23a" stroke="#3a1f0c" stroke-width="10"/>
+  <g fill="none" stroke="#14213d" stroke-width="20">
+    <ellipse cx="128" cy="104" rx="18" ry="16"/>
+    <ellipse cx="128" cy="150" rx="24" ry="21"/>
+  </g>
+</svg>

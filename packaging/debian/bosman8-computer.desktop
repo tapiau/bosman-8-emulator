@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Bosman-8 (computer)
+GenericName=Emulator mikrokomputera Bosman-8 (bez terminala)
+Comment=Sam komputer: łącze terminala na TCP 127.0.0.1:3001 albo porcie szeregowym (np. prawdziwy ANG-3001)
+Exec=bosman8 computer
+Icon=bosman8
+StartupWMClass=bosman8
+Terminal=false
+Categories=System;Emulator;
+Keywords=Bosman;CP/M;CPM-R;Z80;emulator;

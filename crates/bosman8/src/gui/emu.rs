@@ -29,6 +29,8 @@ pub enum Cmd {
     WriteProtect(usize, bool),
     /// New spec for SIO-A (`false`) or SIO-B (`true`).
     Link { aux: bool, spec: String },
+    /// A ready endpoint for SIO-A (the built-in terminal's end of a `b8_link::pair`).
+    TermEndpoint(Box<dyn Endpoint>),
     /// Open (Some) or close (None) the printer output.
     Printer(Option<PrinterCfg>),
     Quit,
@@ -259,6 +261,11 @@ impl Worker {
             self.m.set_term_endpoint(Box::new(NullEndpoint))
         };
         drop(old);
+        if !aux && spec == "terminal" {
+            // The built-in terminal: the GUI sends its endpoint (Cmd::TermEndpoint).
+            self.term_err = None;
+            return;
+        }
         let err = match b8_link::open(spec) {
             Ok(ep) => {
                 if aux {
@@ -397,6 +404,11 @@ impl Worker {
             Cmd::Eject(d) => self.eject(d),
             Cmd::WriteProtect(d, on) => self.m.set_write_protect(d, on),
             Cmd::Link { aux, spec } => self.set_link(aux, &spec),
+            Cmd::TermEndpoint(ep) => {
+                drop(self.m.set_term_endpoint(Box::new(NullEndpoint)));
+                self.m.set_term_endpoint(Box::new(Tap { inner: ep, buf: self.tap.clone() }));
+                self.term_err = None;
+            }
             Cmd::Printer(p) => self.open_printer(p),
             Cmd::Quit => return false,
         }

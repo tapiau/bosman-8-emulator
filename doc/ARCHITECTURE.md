@@ -25,9 +25,21 @@ crates/
                 więc emulator nigdy nie blokuje się na I/O.
   b8-chips/     Wspólne układy: zatrzask 74LS259, 8253 (PIT), Z80-SIO,
                 8251 USART, WD1770. Bez zależności od systemu.
-  bosman8/      Rdzeń Bosmana (pamięć + bankowanie, porty) + binarka CLI.
-  ang3001/      Rdzeń terminala (pamięć, wideo, klawiatura, dźwięk) + binarka GUI.
+  bosman8/      Rdzeń Bosmana (pamięć + bankowanie, porty) + binarka `bosman8`
+                (jedyny program): tryby full / computer / terminal
+                (`src/main.rs`), okno egui (`src/gui/`: `app.rs` układ,
+                `emu.rs` wątek komputera, `terminal.rs` wątek terminala,
+                ekran i klawiatura, `config.rs` ustawienia per tryb), terminal
+                bez okna (`src/terminal_cli.rs`), `b8disk`.
+  ang3001/      Rdzeń terminala (pamięć, wideo, klawiatura, dźwięk) —
+                biblioteka; do 0.4.x także osobna binarka (minifb).
 ```
+
+Tryb `full`: wątek komputera i wątek terminala w jednym procesie, połączone
+`b8_link::pair()` (z RTS/CTS — terminal pacuje komputer jak przez TCP). Okno
+(egui, wątek główny) tylko wysyła komendy kanałami i co klatkę pobiera stan
+(ekran terminala jako tekstura 512×256, stan komputera). Wywołanie programu
+jako `ang3001` (dowiązanie) = tryb terminal z opcjami dawnego programu.
 
 CPU: crate [`iz80`](https://crates.io/crates/iz80) (Z80, przechodzi ZEXALL,
 liczy cykle). Brak IM0/IM2 nie przeszkadza — obie maszyny używają tylko IM1/NMI.

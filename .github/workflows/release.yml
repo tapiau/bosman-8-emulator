@@ -64,9 +64,15 @@ jobs:
           PKG="bosman8-emulator-${VERSION}-${{ matrix.name }}"
           EXT=""; [[ "$RUNNER_OS" == "Windows" ]] && EXT=".exe"
           mkdir -p "dist/$PKG"
-          for b in bosman8 ang3001 b8disk; do
+          for b in bosman8 b8disk; do
             cp "target/${{ matrix.target }}/release/$b$EXT" "dist/$PKG/"
           done
+          # One program, three modes; "ang3001" (former terminal program) = "bosman8 terminal".
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            printf '@"%%~dp0bosman8.exe" terminal %%*\r\n' > "dist/$PKG/ang3001.cmd"
+          else
+            ln -s bosman8 "dist/$PKG/ang3001"
+          fi
           cp -r roms disks doc tools README.md "dist/$PKG/"
           cd dist
           if [[ "$RUNNER_OS" == "Windows" ]]; then

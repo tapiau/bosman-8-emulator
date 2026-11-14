@@ -39,6 +39,9 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
 - ✅ T4.8 Sterowanie przepływem RTS/CTS: SIO-A z Auto Enables, terminal wyłącza RTS przy zaległości; TCP między emulatorami przez podzbiór RFC 2217 (`,raw` wyłącza); `serial:…,rtscts` — linie RTS/CTS portu hosta (Bosman ↔ prawdziwy terminal, ANG ↔ prawdziwy Bosman)
 - ✅ T4.7 ROM terminala ANG-3001 90.09.11 (`--rom roms/ang3001/ANG-3001_90.09.11.BIN`): profile ROM-ów, DSR 8251 nieaktywny; gry z dyskietki GRY (SOKOBAN) rysują grafikę
 
+- ✅ T4.10 Ikona: koło sterowe z 8 szprychami i mosiężną piastą z „8” (`packaging/icons/`, źródła SVG + `render.sh`): ikona okna, ikony `hicolor` i `Icon=` w `.deb`, ikona `.exe` w Windows (`build.rs` + `winresource`)
+- ✅ T4.9 Jedna binarka `bosman8` z trybami: **full** (komputer + terminal w jednym oknie egui, łącze w pamięci z RTS/CTS), **computer** (sam Bosman, SIO-A na TCP/serial), **terminal** (sam ANG-3001, np. do prawdziwego Bosmana); `ang3001` jako dowiązanie (argv[0]) = tryb terminal; konfiguracja per tryb; terminal przeniesiony z minifb na egui (zob. dziennik 2026-11-14) ❓ klawiatura w oknie sprawdzona testem bez okna — do ręcznego sprawdzenia przez użytkownika
+
 ## Faza 4b — łącze między Bosmanami
 - ✅ T4.4 Napędy D/E/F przez SIO-B (master ↔ slave `DEBUG`): D/E/F = A/B/C serwera, `DIR`, odczyt (`E:PIP A:=E:STAT.COM`) i zapis działają między dwoma emulatorami (TCP; test `crates/bosman8/tests/interlink.rs`); `--trace-aux`. ❓ rzeczywiste ROM-y UNIMOR ZJ nie mają rozkazu DEBUG 60 (serwer D/E/F); podłączony egzemplarz zidentyfikowany jako 1987-10-20; BSRV.COM dla obu ROM-ów ZJ i instalator przez DEBUG (tools/bsrv); ✅ sprzęt: katalog E:, odczyt/zapis pliku z porównaniem, kasowanie; wymagane 20 ms ochrony TX przed zmianą prędkości USB — zob. [bosman8-interlink.md](bosman8-interlink.md)
 
@@ -140,3 +143,67 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
   CTS od strony kabla aktywna; samo przełączanie RTS widać dopiero po drugiej stronie kabla (port jest otwierany na
   wyłączność) — ❓ do sprawdzenia z prawdziwym Bosmanem/terminalem. Przy okazji: GUI Bosmana błędnie przejmowało
   specyfikację z opcjami po przecinku (`@100000,8N2` → wszystko w nazwie urządzenia).
+- 2026-11-14: T4.9 start — jedna binarka zamiast dwóch programów łączonych ręcznie po TCP (prośba: „przeciętnemu
+  użytkownikowi odpalanie z palca dwóch aplikacji jest niewygodne”). Ustalone z użytkownikiem: binarka `bosman8`,
+  tryby `bosman8 [komplet|komputer|terminal]` (bez trybu = komplet; `full|computer|terminal` też), dwie instancje
+  (komputer + terminal) dalej łączą się po TCP jak dawniej; okno: ekran terminala w centrum, zwijany panel boczny z
+  ustawieniami, pasek stanu na dole. Architektura: wspólna aplikacja egui z opcjonalnymi komponentami — istniejący
+  wątek komputera (`gui/emu.rs`) i nowy wątek terminala (`gui/terminal.rs`, rdzeń `ang3001` bez zmian), w trybie
+  komplet połączone `b8_link::pair()` (RTS/CTS już działa). Binarka `ang3001` (minifb) znika: crate zostaje
+  biblioteką, tryb terminal bez okna (`--headless`, zrzuty, `--inject`, `--load-ter`) przenoszony do `bosman8`,
+  wywołanie jako `ang3001` (dowiązanie) = tryb terminal z dawnymi opcjami.
+  - krok 1 ✅: `ArrowMode` + mapowanie znaków (`char_code`: ASCII i polskie litery, `ctrl_code`) przeniesione do
+    biblioteki `ang3001` (`crates/ang3001/src/keys.rs`) — wspólne dla nowego GUI i trybu terminal; testy crate'u OK.
+  - krok 2 ✅: `crates/bosman8/src/gui/terminal.rs` — wątek terminala (`TermEmu`: rdzeń `ang3001`, takt 20 ms, turbo,
+    komendy kanałem, ramka + stan publikowane co klatkę), ekran jako tekstura egui (NEAREST, proporcja 4:3), klawiatura
+    z zdarzeń egui (`key_bytes`, `text_bytes`, F6–F12 jak w dawnym oknie), pasek przycisków RESET/BREAK/LOCAL/STOP/CAPS,
+    lista ARROWS i lampki LINK/BEEP/WAIT; test mapowania klawiszy.
+  - krok 3 ✅: konfiguracja (`gui/config.rs`): `Mode` (komplet/komputer/terminal, nazwy też po angielsku), plik na tryb
+    (`komplet.json`, `komputer.json`, `terminal.json`), `LinkKind::Terminal` (SIO-A = wbudowany terminal, spec
+    `terminal`), `TermCfg` (ROM, łącze trybu terminal — domyślnie `tcp:127.0.0.1:3001`, kolor, offset, strzałki),
+    `panel_open`. Migracja: brak pliku trybu → zarodek ze starego `gui.json` (komplet: SIO-A → wbudowany terminal;
+    terminal nie dziedziczy ustawień komputera). Test `modes_and_migration`.
+  - krok 4 ✅: okno (`gui/app.rs`) wspólne dla trybów: `App` z opcjonalnym komputerem (`Emu`) i terminalem (`TermEmu`);
+    w trybie komplet przy SIO-A = „wbudowany terminal” para `b8_link::pair()` (komputer dostaje swój koniec komendą
+    `Cmd::TermEndpoint`, po restarcie komputera para jest zakładana od nowa); panel łączy uogólniony na SIO-A / SIO-B /
+    łącze terminala; nowa sekcja „Terminal ANG-3001” (ROM, kolor, pierwsza linia obrazu, zimny reset terminala);
+    pasek dolny: przyciski terminala, lampki stacji B:/C:, TURBO (wspólne, F9), RESET / Wyłącz-włącz komputera, ⚙
+    (panel); w centrum ekran albo — gdy terminal nie jest podłączony — stan SIO-A i podgląd jego wyjścia. Przyciski
+    oddają fokus, gdy klawiatura należy do terminala (inaczej Enter/spacja „klikały” ostatni przycisk).
+  - krok 5 ✅: wybór trybu (`main.rs`): `bosman8 [komplet|komputer|terminal]`, wywołanie jako `ang3001` = terminal,
+    `bosman8 --no-gui` bez trybu = komputer w wierszu poleceń jak dawniej; opcje i praca bez okna dawnego `ang3001`
+    przeniesione do `terminal_cli.rs` (`--headless`, `--screenshot`, `--dump-text`, `--inject`, `--load-ter`, …);
+    `--terminal-rom`, `--arrows` dla trybu komplet; okno terminala z `--scale`. Testy: wybór trybu (w tym argv[0]),
+    opcje terminala.
+  - sprawdzone w oknie (tryb komplet, X11): baner „BOSMAN 8 / CPM/R” i `A>` na ekranie terminala, panel z sekcjami,
+    SIO-A „wbudowany terminal ANG-3001” (`pair (A)`, LINK), pasek dolny; tryby bez okna (`terminal --headless`,
+    dowiązanie `ang3001`, `komputer --no-gui`) działają.
+  - test `gui::tests::full_mode_computer_and_terminal_talk` ✅: wątek komputera + wątek terminala połączone parą jak w
+    oknie → baner i `A>` na ekranie terminala, `DIR` wpisane z klawiatury terminala → „Brak pliku” od CCP.
+  - krok 6 ✅: binarka `ang3001` (minifb, `main.rs`, `toolbar.rs`) usunięta, crate `ang3001` = sama biblioteka (minifb
+    znika z zależności); `bosman8` zależy od niej zawsze (tryb terminal bez okna działa też w buildzie bez GUI).
+    Paczki: w archiwach Linux/macOS i w `.deb` dowiązanie `ang3001 → bosman8`, w archiwum Windows `ang3001.cmd`
+    (`bosman8 terminal`); menu `.deb`: „Bosman-8” (komplet), „Bosman-8 — komputer”, „ANG-3001 — terminal”.
+    Podczas budowania znów zabrakło miejsca na `/home` (632 MB) — wyczyszczony profil debug `target/` (7,2 GB artefaktów).
+  - sprawdzone w oknach: `bosman8 komputer` + `bosman8 terminal` naraz (dwie instancje, osobne pliki ustawień) łączą
+    się po TCP z RTS/CTS — terminal pokazuje baner i `A>`, okno komputera w centrum stan SIO-A i jego surowe wyjście.
+  - dokumentacja: README (tryby, szybki start, okno, ustawienia per tryb, paczki), `ARCHITECTURE.md` (struktura,
+    tryb komplet), opisy paczki `.deb` i skróty w menu.
+  - T4.9 ✅ całość: testy workspace 145/0, build bez GUI OK, lokalnie zbudowana paczka `.deb` zawiera `bosman8`,
+    `b8disk`, dowiązanie `ang3001 → bosman8` i trzy skróty w menu. Nie sprawdzone automatycznie: pisanie z klawiatury
+    w samym oknie (brak narzędzia do wstrzykiwania klawiszy w tym środowisku) — ścieżka klawiatura → terminal →
+    komputer pokryta testem `full_mode_computer_and_terminal_talk`, mapowanie klawiszy egui testem `keys_map_like_the_old_window`.
+- 2026-11-14: T4.9 — nazwy trybów tylko po angielsku: `full`, `computer`, `terminal` (polskie „komplet”/„komputer”
+  były roboczym podsumowaniem użytkownika, nie nazwami do `--help` i dokumentacji; parser ich już nie przyjmuje).
+  Pliki ustawień `full.json`, `computer.json`, `terminal.json`; tytuły okien i skróty w menu „Bosman-8 (computer)”,
+  „ANG-3001 (terminal)”. Starsze wpisy dziennika powyżej używają roboczych nazw.
+- 2026-11-14: T4.10 — ikona programu: drewniane koło sterowe (8 szprych z uchwytami — jak „8” w nazwie) z mosiężną
+  piastą i cyfrą „8” rysowaną ścieżką (bez zależności od czcionek). Trzy warianty SVG: pełny (≥ 48 px), uproszczony
+  (24–32 px), minimalny (16 px — sama obręcz i piasta, inaczej „8” zlewała się w plamę); `render.sh` robi z nich PNG,
+  `bosman8.ico` i surowe RGBA 128×128 wbudowane w program. Okno: `with_icon` + `app_id` „bosman8” (sprawdzone:
+  `_NET_WM_ICON` 128×128, `WM_CLASS` „bosman8” = `StartupWMClass` skrótów). `.deb`: ikony w
+  `/usr/share/icons/hicolor/{16..256}/apps` i `scalable/apps/bosman8.svg`, `Icon=bosman8` w trzech skrótach.
+  Windows: `crates/bosman8/build.rs` osadza `bosman8.ico` w plikach `.exe` (crate `winresource`, tylko przy
+  kompilacji na Windows) — ❓ sprawdzi dopiero build w CI na Windows.
+- 2026-11-14: wydanie 0.5.0 — jedna binarka z trybami `full` / `computer` / `terminal` (T4.9) i ikona (T4.10);
+  testy workspace 145/0 przed wydaniem.

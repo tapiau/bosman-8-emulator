@@ -1,14 +1,18 @@
-//! The egui window.
+//! The egui window, shared by the modes: the terminal screen in the centre
+//! ("full", "terminal"), settings in a side panel that can be hidden,
+//! the terminal's buttons and the drive lamps in the bottom bar.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Color32, RichText, Ui};
 
+use b8_link::{Endpoint, NullEndpoint};
 use bosman8::disk;
 
-use super::config::{AppConfig, LinkCfg, LinkKind, PrinterKind};
+use super::config::{AppConfig, LinkCfg, LinkKind, Mode, PrinterKind};
 use super::emu::{Cmd, Emu, LinkStatus, Status};
+use super::terminal::{lamp, FAction, TCmd, TermEmu, TermView};
 
 const BAUDS: [u32; 11] = [300, 600, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400];
 const DRIVE_NAMES: [&str; 2] = ["B:", "C:"];
@@ -17,11 +21,18 @@ const RED: Color32 = Color32::from_rgb(230, 50, 40);
 const WARN: Color32 = Color32::from_rgb(230, 160, 30);
 
 pub struct App {
+    mode: Mode,
     cfg: AppConfig,
     config_path: Option<PathBuf>,
     saved_cfg: AppConfig,
     last_save: Instant,
+    /// The computer (modes "full", "computer").
     emu: Option<Emu>,
+    /// The terminal (modes "full", "terminal").
+    term: Option<TermEmu>,
+    view: TermView,
+    term_opts: TermOpts,
+    term_rom_desc: String,
     rom_error: Option<String>,
     rom_path: Option<PathBuf>,
     serial_ports: Vec<String>,
@@ -32,15 +43,41 @@ pub struct App {
     messages: Vec<String>,
 }
 
+/// Terminal settings that come only from the command line.
+#[derive(Clone, Default)]
+pub struct TermOpts {
+    /// Clocks, character time, `--fixed-baud` (colour and line offset come from the settings).
+    pub base: ang3001::Config,
+    /// `--type` text (typed once after the first boot).
+    pub typed: Vec<u8>,
+    /// `--inject` / `--load-ter` bytes (delivered once after the first boot).
+    pub inject: Vec<u8>,
+}
+
+/// Which serial line a link panel edits.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Slot {
+    SioA,
+    SioB,
+    /// The terminal's own line (mode "terminal").
+    Term,
+}
+
 impl App {
-    pub fn new(cfg: AppConfig, config_path: Option<PathBuf>) -> App {
+    pub fn new(mode: Mode, cfg: AppConfig, config_path: Option<PathBuf>, term_opts: TermOpts) -> App {
         let new_kb = [0, 1].map(|d| disk::format_for(cfg.dip, d).kbytes());
+        let view = TermView::new(cfg.terminal.arrows());
         let mut app = App {
+            mode,
             saved_cfg: cfg.clone(),
             cfg,
             config_path,
             last_save: Instant::now(),
             emu: None,
+            term: None,
+            view,
+            term_opts,
+            term_rom_desc: String::new(),
             rom_error: None,
             rom_path: None,
             serial_ports: list_serial_ports(),
@@ -52,9 +89,19 @@ impl App {
         app
     }
 
-    /// (Re)start the machine from the current settings.
+    /// (Re)start everything the mode runs.
     fn start(&mut self) {
+        self.term = None;
+        self.start_computer();
+        self.start_terminal();
+    }
+
+    /// (Re)start the computer from the current settings.
+    fn start_computer(&mut self) {
         self.emu = None; // stops the old thread, writes the disks back
+        if !self.mode.has_computer() {
+            return;
+        }
         match super::super::find_rom(self.cfg.rom.as_deref()) {
             Ok((path, rom)) => {
                 self.rom_error = None;
@@ -62,6 +109,104 @@ impl App {
                 self.emu = Some(Emu::start(rom, &self.cfg));
             }
             Err(e) => self.rom_error = Some(e),
+        }
+        // A restarted computer needs a new connection to the built-in terminal.
+        if self.term.is_some() && self.builtin_terminal() {
+            let link = self.terminal_link();
+            if let Some(t) = &self.term {
+                t.send(TCmd::Link(link));
+            }
+        }
+    }
+
+    /// Command to the computer thread (if the mode has one).
+    fn send(&self, c: Cmd) {
+        if let Some(e) = &self.emu {
+            let _ = e.sender().send(c);
+        }
+    }
+
+    /// SIO-A goes to the terminal in this window.
+    fn builtin_terminal(&self) -> bool {
+        self.mode == Mode::Full && self.cfg.term.kind == LinkKind::Terminal
+    }
+
+    /// The terminal shows on screen (its line is connected to something here or outside).
+    fn screen_shown(&self) -> bool {
+        self.term.is_some() && (self.mode == Mode::Terminal || self.builtin_terminal())
+    }
+
+    /// (Re)start the terminal.
+    fn start_terminal(&mut self) {
+        self.term = None;
+        if !self.mode.has_terminal() {
+            return;
+        }
+        let rom = self.terminal_rom();
+        let mut c = self.term_opts.base.clone();
+        c.fg = self.cfg.terminal.fg();
+        c.line_offset = self.cfg.terminal.line_offset;
+        let link = self.terminal_link();
+        let t = TermEmu::start(rom, c, link, self.cfg.turbo);
+        let typed = std::mem::take(&mut self.term_opts.typed);
+        if !typed.is_empty() {
+            t.send(TCmd::Type(typed));
+        }
+        let inject = std::mem::take(&mut self.term_opts.inject);
+        if !inject.is_empty() {
+            t.send(TCmd::Inject(inject));
+        }
+        self.term = Some(t);
+    }
+
+    /// The terminal's line: an in-memory pair with the computer ("full"),
+    /// nothing ("full" with SIO-A elsewhere) or the configured link ("terminal").
+    fn terminal_link(&mut self) -> Box<dyn Endpoint> {
+        match self.mode {
+            Mode::Full if self.builtin_terminal() => {
+                let (a, b) = b8_link::pair();
+                if let Some(e) = &self.emu {
+                    let _ = e.sender().send(Cmd::TermEndpoint(a));
+                }
+                b
+            }
+            Mode::Full | Mode::Computer => Box::new(NullEndpoint),
+            Mode::Terminal => match b8_link::open(&self.cfg.terminal.link.spec()) {
+                Ok(l) => l,
+                Err(e) => {
+                    self.messages.push(format!("terminal: {e}"));
+                    Box::new(NullEndpoint)
+                }
+            },
+        }
+    }
+
+    /// Terminal ROM: settings, else /etc/bosman-8-emulator.conf, else built in.
+    fn terminal_rom(&mut self) -> Vec<u8> {
+        let path = self.cfg.terminal.rom.clone().or_else(|| b8_link::sysconf::get_path("ang3001_rom"));
+        if let Some(p) = path {
+            match std::fs::read(&p) {
+                Ok(r) => {
+                    self.term_rom_desc = p.display().to_string();
+                    return r;
+                }
+                Err(e) => self.messages.push(format!("ROM terminala {}: {e} — używam wbudowanego", p.display())),
+            }
+        }
+        self.term_rom_desc = "wbudowany (90.09.11)".into();
+        ang3001::DEFAULT_ROM.to_vec()
+    }
+
+    /// F-key / bar action of the terminal.
+    fn apply(&mut self, a: FAction) {
+        if a == FAction::Turbo {
+            self.cfg.turbo = !self.cfg.turbo;
+            self.send(Cmd::Turbo(self.cfg.turbo));
+            if let Some(t) = &self.term {
+                t.send(TCmd::Turbo(self.cfg.turbo));
+            }
+        } else if let Some(t) = &self.term {
+            self.view.apply(a, t);
         }
     }
 
@@ -111,8 +256,11 @@ impl App {
             if ui.button("NMI").on_hover_text("Impuls na linii NMI (eksperymentalnie)").clicked() {
                 tx.send(Cmd::Nmi);
             }
-            if ui.checkbox(&mut self.cfg.turbo, "Turbo").on_hover_text("Bez synchronizacji z zegarem, szybkie FDC").changed() {
+            if ui.checkbox(&mut self.cfg.turbo, "Turbo").on_hover_text("Bez synchronizacji z zegarem, szybkie FDC (F9)").changed() {
                 tx.send(Cmd::Turbo(self.cfg.turbo));
+                if let Some(t) = &self.term {
+                    t.send(TCmd::Turbo(self.cfg.turbo));
+                }
             }
         });
         let st = &self.st;
@@ -238,22 +386,40 @@ impl App {
         });
     }
 
-    fn link_panel(&mut self, ui: &mut Ui, aux: bool) {
-        let tx = self.tx();
-        let ls: LinkStatus = if aux { self.st.aux.clone() } else { self.st.term.clone() };
+    fn link_panel(&mut self, ui: &mut Ui, slot: Slot) {
+        let ls: LinkStatus = match slot {
+            Slot::SioA => self.st.term.clone(),
+            Slot::SioB => self.st.aux.clone(),
+            Slot::Term => match &self.term {
+                Some(t) => {
+                    let f = t.frame();
+                    LinkStatus { describe: f.link.clone(), connected: f.link_connected, error: None }
+                }
+                None => LinkStatus::default(),
+            },
+        };
         let ports = self.serial_ports.clone();
-        let cfg: &mut LinkCfg = if aux { &mut self.cfg.aux } else { &mut self.cfg.term };
+        let mut kinds = vec![LinkKind::None, LinkKind::TcpListen, LinkKind::TcpConnect, LinkKind::Serial, LinkKind::Spec];
+        if slot == Slot::SioA && self.mode == Mode::Full {
+            kinds.insert(0, LinkKind::Terminal);
+        }
+        let cfg: &mut LinkCfg = match slot {
+            Slot::SioA => &mut self.cfg.term,
+            Slot::SioB => &mut self.cfg.aux,
+            Slot::Term => &mut self.cfg.terminal.link,
+        };
         let mut apply = false;
         let mut refresh = false;
         ui.horizontal_wrapped(|ui| {
-            egui::ComboBox::from_id_salt(("linkkind", aux))
+            egui::ComboBox::from_id_salt(("linkkind", slot as u8))
                 .selected_text(kind_name(cfg.kind))
                 .show_ui(ui, |ui| {
-                    for k in [LinkKind::None, LinkKind::TcpListen, LinkKind::TcpConnect, LinkKind::Serial, LinkKind::Spec] {
+                    for k in kinds {
                         ui.selectable_value(&mut cfg.kind, k, kind_name(k));
                     }
                 });
             match cfg.kind {
+                LinkKind::Terminal => {}
                 LinkKind::None => {}
                 LinkKind::TcpListen => {
                     ui.label("adres:port");
@@ -264,7 +430,7 @@ impl App {
                     ui.add(egui::TextEdit::singleline(&mut cfg.connect).desired_width(150.0));
                 }
                 LinkKind::Serial => {
-                    egui::ComboBox::from_id_salt(("ports", aux))
+                    egui::ComboBox::from_id_salt(("ports", slot as u8))
                         .selected_text(if cfg.serial_dev.is_empty() { "(port)" } else { cfg.serial_dev.as_str() })
                         .show_ui(ui, |ui| {
                             if ports.is_empty() {
@@ -278,7 +444,7 @@ impl App {
                     if ui.small_button("⟳").on_hover_text("Odśwież listę portów").clicked() {
                         refresh = true;
                     }
-                    egui::ComboBox::from_id_salt(("baud", aux))
+                    egui::ComboBox::from_id_salt(("baud", slot as u8))
                         .width(80.0)
                         .selected_text(format!("{} bd", cfg.baud))
                         .show_ui(ui, |ui| {
@@ -286,7 +452,7 @@ impl App {
                                 ui.selectable_value(&mut cfg.baud, b, b.to_string());
                             }
                         });
-                    egui::ComboBox::from_id_salt(("format", aux))
+                    egui::ComboBox::from_id_salt(("format", slot as u8))
                         .width(50.0)
                         .selected_text(cfg.format.clone())
                         .show_ui(ui, |ui| {
@@ -316,7 +482,7 @@ impl App {
         });
         if apply {
             let spec = cfg.spec();
-            tx.send(Cmd::Link { aux, spec });
+            self.apply_link(slot, spec);
         }
         if refresh {
             self.serial_ports = list_serial_ports();
@@ -402,6 +568,76 @@ impl App {
         }
     }
 
+    /// Connect a line to a new spec.
+    fn apply_link(&mut self, slot: Slot, spec: String) {
+        match slot {
+            Slot::Term => {
+                let link = self.terminal_link();
+                if let Some(t) = &self.term {
+                    t.send(TCmd::Link(link));
+                }
+            }
+            Slot::SioB => self.send(Cmd::Link { aux: true, spec }),
+            Slot::SioA => {
+                self.send(Cmd::Link { aux: false, spec });
+                // The built-in terminal follows: connected again, or left without a line.
+                if self.term.is_some() {
+                    let link = self.terminal_link();
+                    if let Some(t) = &self.term {
+                        t.send(TCmd::Link(link));
+                    }
+                }
+            }
+        }
+    }
+
+    fn terminal_panel(&mut self, ui: &mut Ui) {
+        let mut restart = false;
+        ui.horizontal_wrapped(|ui| {
+            ui.label("ROM:");
+            ui.label(RichText::new(&self.term_rom_desc).monospace()).on_hover_text("ROM terminala ANG-3001");
+            if ui.button("Wybierz…").clicked() {
+                if let Some(p) = rfd::FileDialog::new().add_filter("ROM", &["bin", "BIN", "rom"]).pick_file() {
+                    self.cfg.terminal.rom = Some(p);
+                    restart = true;
+                }
+            }
+            if self.cfg.terminal.rom.is_some() && ui.button("Wbudowany").on_hover_text("ROM 90.09.11 wbudowany w program").clicked() {
+                self.cfg.terminal.rom = None;
+                restart = true;
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Kolor:");
+            let before = self.cfg.terminal.color.clone();
+            for (c, name) in [("green", "zielony"), ("amber", "bursztynowy"), ("white", "biały")] {
+                ui.radio_value(&mut self.cfg.terminal.color, c.to_string(), name);
+            }
+            if self.cfg.terminal.color != before {
+                if let Some(t) = &self.term {
+                    t.send(TCmd::Colors(self.cfg.terminal.fg(), 0));
+                }
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Pierwsza linia obrazu:");
+            let before = self.cfg.terminal.line_offset;
+            ui.radio_value(&mut self.cfg.terminal.line_offset, 0, "0 (pas komunikatów u góry)");
+            ui.radio_value(&mut self.cfg.terminal.line_offset, 16, "16 (wiersz 0 u góry)");
+            if self.cfg.terminal.line_offset != before {
+                if let Some(t) = &self.term {
+                    t.send(TCmd::LineOffset(self.cfg.terminal.line_offset));
+                }
+            }
+        });
+        if ui.button("Reset terminala (zimny)").on_hover_text("Uruchom emulator terminala od nowa (także po zmianie ROM-u)").clicked() {
+            restart = true;
+        }
+        if restart {
+            self.start_terminal();
+        }
+    }
+
     fn monitor_panel(&mut self, ui: &mut Ui) {
         let text = monitor_text(self.st.monitor.iter().copied());
         egui::ScrollArea::vertical().max_height(220.0).stick_to_bottom(true).show(ui, |ui| {
@@ -422,59 +658,170 @@ impl eframe::App for App {
             self.messages.drain(..n);
         }
 
-        egui::TopBottomPanel::bottom("messages").resizable(true).default_height(70.0).show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.weak("Komunikaty");
-                if ui.small_button("wyczyść").clicked() {
-                    self.messages.clear();
+        // Keyboard → terminal, unless a text field is being edited. Buttons
+        // must not keep the focus, or Enter / Space would press them again.
+        let mut actions = Vec::new();
+        if let Some(t) = &self.term {
+            if !ctx.wants_keyboard_input() {
+                if let Some(id) = ctx.memory(|m| m.focused()) {
+                    ctx.memory_mut(|m| m.surrender_focus(id));
                 }
-            });
-            egui::ScrollArea::vertical().stick_to_bottom(true).show(ui, |ui| {
-                for m in &self.messages {
-                    ui.label(RichText::new(m).small());
-                }
-            });
-        });
+            }
+            actions.extend(self.view.keyboard(ctx, t));
+        }
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                if let Some(e) = self.rom_error.clone() {
-                    ui.colored_label(RED, format!("Brak ROM-u: {e}"));
-                    if ui.button("Wybierz plik ROM…").clicked() {
-                        if let Some(p) = rfd::FileDialog::new().add_filter("ROM", &["bin", "rom"]).pick_file() {
-                            self.cfg.rom = Some(p);
-                            self.start();
+        let fg = {
+            let c = self.cfg.terminal.fg();
+            Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
+        };
+        egui::TopBottomPanel::bottom("bar").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                if let Some(t) = &self.term {
+                    actions.extend(self.view.bar(ui, t, fg));
+                }
+                if self.mode.has_computer() {
+                    ui.separator();
+                    for d in 0..2 {
+                        let ds = &self.st.drives[d];
+                        let name = ds.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned());
+                        lamp(ui, ds.active, GREEN, DRIVE_NAMES[d]).on_hover_text(name.unwrap_or_else(|| "(pusta)".into()));
+                    }
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let panel = if self.cfg.panel_open { "⚙ ▶" } else { "⚙ ◀" };
+                    if ui.selectable_label(self.cfg.panel_open, panel).on_hover_text("Pokaż / schowaj ustawienia").clicked() {
+                        self.cfg.panel_open = !self.cfg.panel_open;
+                    }
+                    if ui
+                        .add(egui::Button::new("TURBO").shortcut_text("F9").selected(self.cfg.turbo))
+                        .on_hover_text("Bez synchronizacji z zegarem")
+                        .clicked()
+                    {
+                        actions.push(FAction::Turbo);
+                    }
+                    if self.mode.has_computer() {
+                        if ui.button("Wyłącz/włącz").on_hover_text("Zimny start komputera (zworki DIP zastosowane, baner)").clicked() {
+                            self.send(Cmd::ColdReset(self.cfg.dip));
+                        }
+                        if ui.button("RESET komputera").on_hover_text("Przycisk RESET Bosmana: tylko procesor").clicked() {
+                            self.send(Cmd::WarmReset);
                         }
                     }
-                    ui.separator();
-                }
-                section(ui, "Komputer", |ui| self.machine_panel(ui));
-                section(ui, "Stacje dyskietek", |ui| {
-                    self.drive_panel(ui, 0);
-                    ui.separator();
-                    self.drive_panel(ui, 1);
                 });
-                section(ui, "Zworki portu 0x98 (DIP)", |ui| self.dip_panel(ui));
-                section(ui, "SIO-A — terminal", |ui| self.link_panel(ui, false));
-                section(ui, "SIO-B — V.24", |ui| self.link_panel(ui, true));
-                section(ui, "Port równoległy (Centronics)", |ui| self.printer_panel(ui));
-                let r = egui::CollapsingHeader::new("Podgląd wyjścia SIO-A")
-                    .default_open(self.cfg.show_monitor)
-                    .show(ui, |ui| self.monitor_panel(ui));
-                self.cfg.show_monitor = r.body_returned.is_some();
-                if let Some(p) = &self.rom_path {
-                    ui.weak(format!("ROM: {}", p.display()));
-                }
             });
         });
 
+        if self.cfg.panel_open {
+            egui::SidePanel::right("settings").resizable(true).default_width(400.0).show(ctx, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| self.settings(ui));
+            });
+        }
+
+        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(Color32::BLACK)).show(ctx, |ui| {
+            if self.screen_shown() {
+                if let Some(t) = &self.term {
+                    self.view.screen(ui, t);
+                }
+            } else {
+                egui::Frame::NONE.inner_margin(12.0).show(ui, |ui| self.no_screen(ui));
+            }
+        });
+
+        for a in actions {
+            self.apply(a);
+        }
+        if self.view.arrows != self.cfg.terminal.arrows() {
+            self.cfg.terminal.set_arrows(self.view.arrows);
+        }
         self.save_config(false);
-        ctx.request_repaint_after(Duration::from_millis(100));
+        ctx.request_repaint_after(Duration::from_millis(if self.term.is_some() { 16 } else { 100 }));
+    }
+}
+
+impl App {
+    /// Contents of the side panel, per mode.
+    fn settings(&mut self, ui: &mut Ui) {
+        if let Some(e) = self.rom_error.clone() {
+            ui.colored_label(RED, format!("Brak ROM-u komputera: {e}"));
+            if ui.button("Wybierz plik ROM…").clicked() {
+                if let Some(p) = rfd::FileDialog::new().add_filter("ROM", &["bin", "rom"]).pick_file() {
+                    self.cfg.rom = Some(p);
+                    self.start_computer();
+                }
+            }
+            ui.separator();
+        }
+        if self.mode.has_computer() {
+            section(ui, "Komputer", |ui| self.machine_panel(ui));
+            section(ui, "Stacje dyskietek", |ui| {
+                self.drive_panel(ui, 0);
+                ui.separator();
+                self.drive_panel(ui, 1);
+            });
+            section(ui, "Zworki portu 0x98 (DIP)", |ui| self.dip_panel(ui));
+            section(ui, "SIO-A — terminal", |ui| self.link_panel(ui, Slot::SioA));
+            section(ui, "SIO-B — V.24", |ui| self.link_panel(ui, Slot::SioB));
+            section(ui, "Port równoległy (Centronics)", |ui| self.printer_panel(ui));
+        }
+        if self.mode == Mode::Terminal {
+            section(ui, "Łącze terminala", |ui| self.link_panel(ui, Slot::Term));
+        }
+        if self.mode.has_terminal() {
+            section(ui, "Terminal ANG-3001", |ui| self.terminal_panel(ui));
+        }
+        if self.mode.has_computer() {
+            let r = egui::CollapsingHeader::new("Podgląd wyjścia SIO-A")
+                .default_open(self.cfg.show_monitor)
+                .show(ui, |ui| self.monitor_panel(ui));
+            self.cfg.show_monitor = r.body_returned.is_some();
+            if let Some(p) = &self.rom_path {
+                ui.weak(format!("ROM komputera: {}", p.display()));
+            }
+        }
+        egui::CollapsingHeader::new(format!("Komunikaty ({})", self.messages.len())).default_open(false).show(ui, |ui| {
+            if ui.small_button("wyczyść").clicked() {
+                self.messages.clear();
+            }
+            for m in &self.messages {
+                ui.label(RichText::new(m).small());
+            }
+        });
+    }
+
+    /// Centre of the window when the terminal is not on screen.
+    fn no_screen(&mut self, ui: &mut Ui) {
+        let ls = self.st.term.clone();
+        ui.label(RichText::new("SIO-A (terminal)").strong().color(Color32::LIGHT_GRAY));
+        ui.horizontal(|ui| {
+            led(ui, ls.connected && ls.error.is_none(), GREEN);
+            match &ls.error {
+                Some(e) => ui.colored_label(RED, e),
+                None => ui.label(RichText::new(&ls.describe).color(Color32::LIGHT_GRAY)),
+            };
+        });
+        if self.mode == Mode::Full {
+            ui.label(
+                RichText::new("Wbudowany terminal jest odłączony — SIO-A ustawione na inne łącze (panel ⚙ → SIO-A).")
+                    .color(Color32::GRAY),
+            );
+        } else {
+            ui.label(
+                RichText::new("Podłącz terminal: drugie okno „bosman8 terminal” (TCP 127.0.0.1:3001) albo prawdziwy ANG-3001 przez port szeregowy.")
+                    .color(Color32::GRAY),
+            );
+        }
+        ui.add_space(8.0);
+        ui.label(RichText::new("Wyjście SIO-A").strong().color(Color32::LIGHT_GRAY));
+        let text = monitor_text(self.st.monitor.iter().copied());
+        egui::ScrollArea::vertical().stick_to_bottom(true).show(ui, |ui| {
+            ui.add(egui::Label::new(RichText::new(text).monospace().size(12.0).color(Color32::from_rgb(0x33, 0xFF, 0x66))).wrap());
+        });
     }
 }
 
 impl Drop for App {
     fn drop(&mut self) {
+        self.term = None;
         self.emu = None; // write the disks back
         self.save_config(true);
     }
@@ -524,6 +871,7 @@ fn kind_name(k: LinkKind) -> &'static str {
         LinkKind::TcpConnect => "TCP — połączenie",
         LinkKind::Serial => "port szeregowy hosta",
         LinkKind::Spec => "inna specyfikacja",
+        LinkKind::Terminal => "wbudowany terminal ANG-3001",
     }
 }
 
