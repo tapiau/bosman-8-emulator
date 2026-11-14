@@ -1,8 +1,10 @@
 [Desktop Entry]
 Type=Application
 Name=Bosman-8
-GenericName=Emulator mikrokomputera Bosman-8
-Comment=Bosman-8 (DZM-180, CPM-R) z terminalem ANG-3001 w jednym oknie
+GenericName=Bosman-8 microcomputer emulator
+GenericName[pl]=Emulator mikrokomputera Bosman-8
+Comment=Bosman-8 (DZM-180, CPM-R) with the ANG-3001 terminal in one window
+Comment[pl]=Bosman-8 (DZM-180, CPM-R) z terminalem ANG-3001 w jednym oknie
 Exec=bosman8
 Icon=bosman8
 StartupWMClass=bosman8

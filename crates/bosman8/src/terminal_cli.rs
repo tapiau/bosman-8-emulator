@@ -47,6 +47,8 @@ OPTIONS:
                       (default: follow the speed/format the ROM programs into the
                       8251, 100000 8N2; with --fixed-baud add ,8N2 yourself)
   --config PATH       settings file of the window (default: <config dir>/bosman8/terminal.json)
+  --lang LANG         interface language: en (default) or pl (also \"lang\" in the settings
+                      file and the selector in the side panel)
   --trace-io          log accesses to unknown ports (and 0x0A/0x0B) to stderr
   --headless          no window; runs unpaced unless --realtime
   --realtime          pace headless mode to real time
@@ -86,6 +88,8 @@ pub struct Opts {
     pub inject: Vec<u8>,
     pub typed: Vec<u8>,
     pub config: Option<PathBuf>,
+    /// Interface language of the window (`en`, `pl`).
+    pub lang: Option<String>,
     pub headless: bool,
     pub realtime: bool,
     pub after: f64,
@@ -107,6 +111,7 @@ impl Default for Opts {
             inject: Vec::new(),
             typed: Vec::new(),
             config: None,
+            lang: None,
             headless: false,
             realtime: false,
             after: 3.0,
@@ -165,6 +170,13 @@ pub fn parse(args: &[String]) -> Result<Option<Opts>, String> {
             }
             "--type" => o.typed.extend(val(&a)?.replace("\\r", "\r").bytes()),
             "--config" => o.config = Some(val(&a)?.into()),
+            "--lang" => {
+                let v = val(&a)?;
+                if !matches!(v.to_ascii_lowercase().as_str(), "en" | "pl" | "english" | "polski" | "polish") {
+                    return Err(format!("--lang: unknown language '{v}' (en, pl)"));
+                }
+                o.lang = Some(v);
+            }
             "--trace-io" => o.cfg.trace_io = true,
             "--fixed-baud" => o.cfg.follow_line_params = false,
             "--headless" => o.headless = true,

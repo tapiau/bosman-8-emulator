@@ -20,6 +20,7 @@
 mod app;
 mod config;
 mod emu;
+pub mod i18n;
 mod terminal;
 
 use std::path::PathBuf;
@@ -40,6 +41,7 @@ struct GuiArgs {
     turbo: bool,
     terminal_rom: Option<PathBuf>,
     arrows: Option<ang3001::ArrowMode>,
+    lang: Option<i18n::Lang>,
 }
 
 fn parse_args(cli: &[String]) -> Result<GuiArgs, String> {
@@ -54,6 +56,7 @@ fn parse_args(cli: &[String]) -> Result<GuiArgs, String> {
         turbo: false,
         terminal_rom: None,
         arrows: None,
+        lang: None,
     };
     let mut it = cli.iter().cloned();
     while let Some(arg) = it.next() {
@@ -79,6 +82,10 @@ fn parse_args(cli: &[String]) -> Result<GuiArgs, String> {
             "--printer" => a.printer = Some(val()?.into()),
             "--turbo" => a.turbo = true,
             "--terminal-rom" => a.terminal_rom = Some(val()?.into()),
+            "--lang" => {
+                let v = val()?;
+                a.lang = Some(i18n::Lang::parse(&v).ok_or_else(|| format!("--lang: unknown language '{v}' (en, pl)"))?);
+            }
             "--arrows" => {
                 let v = val()?;
                 a.arrows = Some(ang3001::ArrowMode::parse(&v).ok_or_else(|| format!("--arrows: unknown mode '{v}'"))?);
@@ -113,6 +120,13 @@ fn load_config(mode: Mode, explicit: Option<PathBuf>) -> (AppConfig, Option<Path
 fn icon() -> eframe::egui::IconData {
     const RGBA: &[u8] = include_bytes!("../../../../packaging/icons/bosman8-128.rgba");
     eframe::egui::IconData { rgba: RGBA.to_vec(), width: 128, height: 128 }
+}
+
+/// Interface language: `--lang`, else the settings file, else English.
+fn apply_lang(cfg: &mut AppConfig, cli: Option<i18n::Lang>) {
+    let l = cli.or_else(|| i18n::Lang::parse(&cfg.lang)).unwrap_or(i18n::Lang::En);
+    i18n::set(l);
+    cfg.lang = l.code().into();
 }
 
 /// Open the window (all modes).
@@ -156,6 +170,7 @@ pub fn run_terminal(o: crate::terminal_cli::Opts) -> ExitCode {
     if o.turbo {
         cfg.turbo = true;
     }
+    apply_lang(&mut cfg, o.lang.as_deref().and_then(i18n::Lang::parse));
     let opts = app::TermOpts { base: o.cfg.clone(), typed: o.typed.clone(), inject: o.inject.clone() };
     let screen_h = 256.0 * o.scale as f32;
     let panel = if cfg.panel_open { 400.0 } else { 0.0 };
@@ -190,6 +205,7 @@ pub fn run(mode: Mode, cli: &[String]) -> ExitCode {
     if let Some(a) = args.arrows {
         cfg.terminal.set_arrows(a);
     }
+    apply_lang(&mut cfg, args.lang);
     if let Some(t) = &args.aux {
         cfg.aux.set_spec(t);
     }

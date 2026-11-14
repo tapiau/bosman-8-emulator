@@ -13,6 +13,8 @@ use ang3001::{Ang3001, ArrowMode, Config, TermMode, SCREEN_H, SCREEN_W};
 use b8_link::Endpoint;
 use eframe::egui::{self, Color32, Key, Modifiers, RichText, Ui};
 
+use super::i18n::t;
+
 /// Commands from the UI to the terminal thread.
 pub enum TCmd {
     Key(u8),
@@ -343,11 +345,11 @@ impl TermView {
         let key = |ui: &mut Ui, label: &str, hint: &str, lit: bool| {
             ui.add(egui::Button::new(RichText::new(label).strong()).shortcut_text(hint).selected(lit))
         };
-        if key(ui, "RESET", "F11", false).on_hover_text("Reset terminala (procesor i układy; RAM zostaje)").clicked() {
+        if key(ui, "RESET", "F11", false).on_hover_text(t("Terminal reset (CPU and chips; RAM is kept)", "Reset terminala (procesor i układy; RAM zostaje)")).clicked() {
             actions.push(FAction::Reset);
         }
         let brk = key(ui, "BREAK", "F12", self.break_mouse || self.break_key)
-            .on_hover_text("Klawisz BREAK — trzymany, dopóki wciśnięty");
+            .on_hover_text(t("BREAK key — held while pressed", "Klawisz BREAK — trzymany, dopóki wciśnięty"));
         let down = brk.is_pointer_button_down_on();
         if down != self.break_mouse {
             self.break_mouse = down;
@@ -355,15 +357,15 @@ impl TermView {
         }
         let local = f.mode == TermMode::Local;
         if key(ui, "LOCAL", "F7", local || f.local_pending)
-            .on_hover_text("LOCAL: klawiatura pisze na ekran, nic nie idzie do komputera")
+            .on_hover_text(t("LOCAL: the keyboard writes to the screen, nothing goes to the computer", "LOCAL: klawiatura pisze na ekran, nic nie idzie do komputera"))
             .clicked()
         {
             actions.push(FAction::Local);
         }
-        if key(ui, "STOP", "F8", f.stop).on_hover_text("Stronicowanie: po ekranie tekstu STOP i czekanie na klawisz").clicked() {
+        if key(ui, "STOP", "F8", f.stop).on_hover_text(t("Paging: after a screen of text STOP and wait for a key", "Stronicowanie: po ekranie tekstu STOP i czekanie na klawisz")).clicked() {
             actions.push(FAction::Stop);
         }
-        if key(ui, "CAPS", "F10", f.caps).on_hover_text("CAPS: ROM odwraca wielkość liter").clicked() {
+        if key(ui, "CAPS", "F10", f.caps).on_hover_text(t("CAPS: the ROM swaps letter case", "CAPS: ROM odwraca wielkość liter")).clicked() {
             actions.push(FAction::Caps);
         }
         ui.separator();
@@ -377,12 +379,12 @@ impl TermView {
                 }
             })
             .response
-            .on_hover_text("Co wysyłają strzałki (F6 = następny tryb)");
+            .on_hover_text(t("What the arrow keys send (F6 = next mode)", "Co wysyłają strzałki (F6 = następny tryb)"));
         ui.separator();
         lamp(ui, f.link_connected, fg, "LINK").on_hover_text(&f.link);
         lamp(ui, f.beep.is_some(), fg, "BEEP")
-            .on_hover_text(f.beep.map(|h| format!("{h:.0} Hz")).unwrap_or_else(|| "brzęczyk".into()));
-        lamp(ui, f.mode == TermMode::Stopped, fg, "WAIT").on_hover_text("Terminal czeka w STOP — naciśnij klawisz");
+            .on_hover_text(f.beep.map(|h| format!("{h:.0} Hz")).unwrap_or_else(|| t("beeper", "brzęczyk").into()));
+        lamp(ui, f.mode == TermMode::Stopped, fg, "WAIT").on_hover_text(t("The terminal waits in STOP — press a key", "Terminal czeka w STOP — naciśnij klawisz"));
         actions
     }
 }

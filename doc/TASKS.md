@@ -39,6 +39,7 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
 - ✅ T4.8 Sterowanie przepływem RTS/CTS: SIO-A z Auto Enables, terminal wyłącza RTS przy zaległości; TCP między emulatorami przez podzbiór RFC 2217 (`,raw` wyłącza); `serial:…,rtscts` — linie RTS/CTS portu hosta (Bosman ↔ prawdziwy terminal, ANG ↔ prawdziwy Bosman)
 - ✅ T4.7 ROM terminala ANG-3001 90.09.11 (`--rom roms/ang3001/ANG-3001_90.09.11.BIN`): profile ROM-ów, DSR 8251 nieaktywny; gry z dyskietki GRY (SOKOBAN) rysują grafikę
 
+- ✅ T4.11 Język interfejsu: domyślnie angielski, polski przez `--lang pl`, `"lang"` w ustawieniach albo wybór w panelu (`gui/i18n.rs`); skróty `.desktop` z wariantami `[pl]`
 - ✅ T4.10 Ikona: koło sterowe z 8 szprychami i mosiężną piastą z „8” (`packaging/icons/`, źródła SVG + `render.sh`): ikona okna, ikony `hicolor` i `Icon=` w `.deb`, ikona `.exe` w Windows (`build.rs` + `winresource`)
 - ✅ T4.9 Jedna binarka `bosman8` z trybami: **full** (komputer + terminal w jednym oknie egui, łącze w pamięci z RTS/CTS), **computer** (sam Bosman, SIO-A na TCP/serial), **terminal** (sam ANG-3001, np. do prawdziwego Bosmana); `ang3001` jako dowiązanie (argv[0]) = tryb terminal; konfiguracja per tryb; terminal przeniesiony z minifb na egui (zob. dziennik 2026-11-14) ❓ klawiatura w oknie sprawdzona testem bez okna — do ręcznego sprawdzenia przez użytkownika
 
@@ -207,3 +208,15 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
   kompilacji na Windows) — ❓ sprawdzi dopiero build w CI na Windows.
 - 2026-11-14: wydanie 0.5.0 — jedna binarka z trybami `full` / `computer` / `terminal` (T4.9) i ikona (T4.10);
   testy workspace 145/0 przed wydaniem.
+- 2026-11-14: wydanie 0.5.0 opublikowane i sprawdzone: buildy i CI na 3 systemach OK; `.deb` z `bosman8`, `b8disk`,
+  dowiązaniem `ang3001`, trzema skrótami i ikonami `hicolor`; archiwum Windows z `ang3001.cmd`; ikona osadzona w
+  `bosman8.exe` (zasoby `.rsrc` z obrazami ikony).
+- 2026-11-14: T4.11 — język interfejsu. Dotąd okno było po polsku; teraz domyślnie po angielsku, polski do wyboru:
+  `--lang pl` (tryby full / computer / terminal; `bosman8 computer --no-gui` przyjmuje i ignoruje), pole `lang` w pliku
+  ustawień, lista „Language / Język” na górze panelu (przełącza od razu). Implementacja: `gui/i18n.rs` — bieżący język
+  w zmiennej atomowej, napisy jako pary w miejscu użycia: `t("English", "Polski")`, makro `tf!` dla `format!`
+  (przy dwóch językach czytelniej niż pliki z kluczami). Przetłumaczone wszystkie napisy okna (`app.rs`,
+  `terminal.rs`); identyfikatory zwijanych sekcji niezależne od języka (`id_salt`), opis wbudowanego ROM-u terminala
+  składany przy rysowaniu. Komunikaty wątku komputera i CLI były już po angielsku. Skróty `.desktop`: angielskie
+  `GenericName`/`Comment` + warianty `[pl]`. Sprawdzone zrzutami panelu w obu językach; test `i18n::parse_and_switch`.
+- 2026-11-14: wydanie 0.5.1 — język interfejsu (T4.11); testy workspace 146/0 przed wydaniem.

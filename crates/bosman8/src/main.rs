@@ -35,6 +35,8 @@ OPTIONS (full / computer):
                          without a mode is the same
   --config PATH          GUI settings file (default: <config dir>/bosman8/full.json
                          or computer.json)
+  --lang LANG            interface language: en (default) or pl (also \"lang\" in
+                         the settings file and the selector in the side panel)
   --terminal-rom PATH    full: ROM of the terminal (default: built-in 90.09.11)
   --arrows MODE          full: what the arrow keys send (numpad, vt52, wordstar,
                          vim, none/off; see bosman8 terminal --help)
@@ -140,6 +142,9 @@ fn parse_args(cli: &[String]) -> Result<Args, String> {
                 a.max_seconds = Some(v.parse().map_err(|_| format!("invalid number '{v}'"))?)
             }
             "--no-gui" => {}
+            "--lang" | "--terminal-rom" | "--arrows" => {
+                val()?; // window settings; nothing to do on the command line
+            }
             "--config" => drop(val()?), // GUI only
             "-h" | "--help" => {
                 println!("{USAGE}");

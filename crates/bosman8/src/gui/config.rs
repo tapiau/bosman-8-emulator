@@ -183,6 +183,8 @@ pub struct AppConfig {
     pub terminal: TermCfg,
     /// Side panel with the settings shown.
     pub panel_open: bool,
+    /// Interface language: `en` (default) or `pl`.
+    pub lang: String,
 }
 
 /// The ANG-3001 terminal (modes "full" and "terminal").
@@ -254,6 +256,7 @@ impl Default for AppConfig {
             show_monitor: false,
             terminal: TermCfg::default(),
             panel_open: true,
+            lang: "en".into(),
         }
     }
 }

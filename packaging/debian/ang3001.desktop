@@ -1,8 +1,10 @@
 [Desktop Entry]
 Type=Application
 Name=ANG-3001 (terminal)
-GenericName=Emulator terminala ANG-3001
-Comment=Sam terminal: łączy się z „Bosman-8 (computer)” po TCP 127.0.0.1:3001 albo z prawdziwym Bosmanem przez port szeregowy
+GenericName=ANG-3001 terminal emulator
+GenericName[pl]=Emulator terminala ANG-3001
+Comment=The terminal only: connects to "Bosman-8 (computer)" over TCP 127.0.0.1:3001 or to a real Bosman on a serial port
+Comment[pl]=Sam terminal: łączy się z „Bosman-8 (computer)” po TCP 127.0.0.1:3001 albo z prawdziwym Bosmanem przez port szeregowy
 Exec=bosman8 terminal
 Icon=bosman8
 StartupWMClass=bosman8

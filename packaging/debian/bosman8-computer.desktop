@@ -1,8 +1,10 @@
 [Desktop Entry]
 Type=Application
 Name=Bosman-8 (computer)
-GenericName=Emulator mikrokomputera Bosman-8 (bez terminala)
-Comment=Sam komputer: łącze terminala na TCP 127.0.0.1:3001 albo porcie szeregowym (np. prawdziwy ANG-3001)
+GenericName=Bosman-8 microcomputer emulator (without terminal)
+GenericName[pl]=Emulator mikrokomputera Bosman-8 (bez terminala)
+Comment=The computer only: terminal line on TCP 127.0.0.1:3001 or a serial port (e.g. a real ANG-3001)
+Comment[pl]=Sam komputer: łącze terminala na TCP 127.0.0.1:3001 albo porcie szeregowym (np. prawdziwy ANG-3001)
 Exec=bosman8 computer
 Icon=bosman8
 StartupWMClass=bosman8

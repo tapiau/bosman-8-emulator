@@ -46,6 +46,10 @@ do terminala, chyba że edytujesz pole tekstowe w panelu. W trybie `full` SIO-A 
 i podgląd wyjścia SIO-A. W trybie terminal panel zawiera „Łącze terminala” (TCP / port
 szeregowy, RTS/CTS) i sekcję „Terminal ANG-3001” (ROM, kolor, pierwsza linia obrazu).
 
+Język interfejsu: domyślnie angielski; polski — `--lang pl` (wszystkie tryby), `"lang": "pl"` w pliku
+ustawień albo wybór „Language / Język” na górze panelu (zmiana od razu, bez restartu). Komunikaty
+wiersza poleceń (`--help`, `--no-gui`, `--headless`) są po angielsku.
+
 Ikona programu (koło sterowe z „8”) jest w `packaging/icons/` — źródła SVG i `render.sh`, który
 robi z nich PNG, `.ico` (wbudowane w `bosman8.exe`) i ikonę okna.
 
@@ -150,8 +154,8 @@ Bosmanów z ROM-ami UNIMOR ZJ, z [instrukcją instalacji](tools/bsrv/README.md).
 Publikacja wydania:
 
 ```sh
-git tag v0.5.0
-git push origin v0.5.0     # → workflow buduje paczki i tworzy Release na GitHubie
+git tag v0.5.1
+git push origin v0.5.1     # → workflow buduje paczki i tworzy Release na GitHubie
 ```
 
 Bez taga: zakładka Actions → Release → „Run workflow” buduje paczki jako
