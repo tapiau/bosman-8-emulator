@@ -172,9 +172,29 @@ fn tcp_rfc2217_flow_control_and_ff_bytes() {
     assert_eq!(cli.read(), None);
 }
 
+/// Read exactly `n` bytes from a plain socket (TCP may deliver them in any
+/// number of pieces), then check that nothing else follows.
+fn read_exact_then_quiet(s: &mut std::net::TcpStream, n: usize) -> Vec<u8> {
+    use std::io::Read;
+    s.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    let mut got = vec![0u8; n];
+    s.read_exact(&mut got).unwrap();
+    s.set_read_timeout(Some(Duration::from_millis(200))).unwrap();
+    let mut extra = [0u8; 16];
+    match s.read(&mut extra) {
+        Ok(0) => {}
+        Ok(k) => panic!("unexpected extra bytes {:?} after {:?}", &extra[..k], got),
+        Err(e) => assert!(
+            matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut),
+            "{e}"
+        ),
+    }
+    got
+}
+
 #[test]
 fn tcp_server_stays_raw_for_plain_clients() {
-    use std::io::{Read, Write};
+    use std::io::Write;
     let mut srv = TcpListenEndpoint::bind("127.0.0.1:0").unwrap();
     let mut s = std::net::TcpStream::connect(srv.local_addr()).unwrap();
     s.write_all(&[b'h', 0xFF, b'i']).unwrap();
@@ -182,27 +202,20 @@ fn tcp_server_stays_raw_for_plain_clients() {
     srv.write(0xFF);
     srv.write(b'!');
     srv.set_rts(false); // nothing to send without Telnet
-    let mut buf = [0u8; 8];
-    s.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
-    let n = s.read(&mut buf).unwrap();
-    assert_eq!(&buf[..n], &[0xFF, b'!']);
+    assert_eq!(read_exact_then_quiet(&mut s, 2), vec![0xFF, b'!']);
     assert!(srv.cts());
     assert!(!srv.describe().contains("RTS/CTS"));
 }
 
 #[test]
 fn tcp_raw_client_sends_no_offer() {
-    use std::io::Read;
     let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = l.local_addr().unwrap();
     let mut cli = open(&format!("tcp:{addr},raw")).unwrap();
     let (mut s, _) = l.accept().unwrap();
     assert!(wait_until(|| cli.status().connected));
     cli.write(b'x');
-    let mut buf = [0u8; 8];
-    s.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
-    let n = s.read(&mut buf).unwrap();
-    assert_eq!(&buf[..n], b"x");
+    assert_eq!(read_exact_then_quiet(&mut s, 1), b"x", "no Telnet offer before the data");
 }
 
 #[test]
