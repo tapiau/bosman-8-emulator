@@ -61,9 +61,128 @@ pub fn format_for(dip: u8, drive: usize) -> Format {
     }
 }
 
+/// Format whose first sector ID is `id` (as found on an HFE disk).
+pub fn format_by_first_sector(id: u8) -> Option<Format> {
+    [F200, F400, F800].into_iter().find(|f| f.first_sector == id)
+}
+
+/// How a disk image is stored in its file.
+#[derive(Debug, Clone)]
+pub enum Container {
+    /// Raw sectors, track-major (the emulator's own `.img`).
+    Raw,
+    /// Gotek HFE: written back by patching sector data fields in place.
+    Hfe(Box<crate::hfe::Hfe>),
+}
+
+/// A disk file opened for a drive.
+#[derive(Debug)]
+pub struct Opened {
+    pub image: DiskImage,
+    pub container: Container,
+    /// Mismatch with the drive format. For HFE the image is then already
+    /// write-protected (sectors missing from the file can't be written back);
+    /// a raw image of the wrong size is left to the caller.
+    pub warning: Option<String>,
+}
+
+/// File contents → disk for a drive using `format`.
+pub fn open_bytes(data: Vec<u8>, format: Format) -> Result<Opened, String> {
+    if !crate::hfe::is_hfe(&data) && !data.starts_with(b"HXCHFEV3") {
+        let warning = (data.len() != format.image_len()).then(|| {
+            format!("{} bytes, expected {} ({} KB) for this format", data.len(), format.image_len(), format.kbytes())
+        });
+        return Ok(Opened { image: format.from_bytes(data), container: Container::Raw, warning });
+    }
+    let hfe = crate::hfe::Hfe::parse(data)?;
+    let mut image = format.blank();
+    let mut missing = 0;
+    for c in 0..format.cylinders {
+        for s in 0..format.sides {
+            for id in format.first_sector..format.first_sector + SECTORS {
+                let off = image.offset(c, s, id).expect("geometry");
+                match hfe.sector(c, s, id) {
+                    Some(d) if d.len() == SECTOR_SIZE => image.data[off..off + SECTOR_SIZE].copy_from_slice(d),
+                    _ => missing += 1,
+                }
+            }
+        }
+    }
+    let warning = (missing > 0).then(|| {
+        let total = format.cylinders as usize * format.sides as usize * SECTORS as usize;
+        let looks = match hfe.first_sector_id().and_then(format_by_first_sector) {
+            Some(f) if f != format => format!("; the disk looks like the {} KB format", f.kbytes()),
+            _ => String::new(),
+        };
+        image.write_protected = true;
+        format!(
+            "HFE: {missing} of {total} sectors of the {} KB format not found{looks} — write-protected",
+            format.kbytes()
+        )
+    });
+    Ok(Opened { image, container: Container::Hfe(Box::new(hfe)), warning })
+}
+
+impl Container {
+    /// File contents for `img` (opened with this container).
+    pub fn to_bytes(&mut self, img: &DiskImage) -> Vec<u8> {
+        match self {
+            Container::Raw => img.data.clone(),
+            Container::Hfe(h) => {
+                for c in 0..img.tracks {
+                    for s in 0..img.sides {
+                        for id in img.first_sector..img.first_sector + img.sectors_per_track {
+                            if let Some(off) = img.offset(c, s, id) {
+                                h.write_sector(c, s, id, &img.data[off..off + img.sector_size]);
+                            }
+                        }
+                    }
+                }
+                h.bytes().to_vec()
+            }
+        }
+    }
+}
+
+/// True if `path` names an HFE file (by extension).
+pub fn is_hfe_path(path: &std::path::Path) -> bool {
+    path.extension().is_some_and(|e| e.eq_ignore_ascii_case("hfe"))
+}
+
+/// Contents of a new blank disk file: HFE if the name ends in `.hfe`, raw otherwise.
+pub fn blank_file(path: &std::path::Path, format: Format) -> Vec<u8> {
+    let d = format.blank();
+    if is_hfe_path(path) {
+        crate::hfe::create(format.cylinders, format.sides, SECTORS, SECTOR_SIZE, format.first_sector, &d.data)
+    } else {
+        d.data
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hfe_open_and_write_back() {
+        let raw: Vec<u8> = (0..F400.image_len()).map(|i| (i % 251) as u8).collect();
+        let file = crate::hfe::create(40, 2, SECTORS, SECTOR_SIZE, 0x21, &raw);
+        let mut o = open_bytes(file.clone(), F400).unwrap();
+        assert!(o.warning.is_none() && !o.image.write_protected);
+        assert_eq!(o.image.data, raw);
+        let off = o.image.offset(39, 1, 0x25).unwrap();
+        o.image.data[off..off + 3].copy_from_slice(b"B8!");
+        let saved = o.container.to_bytes(&o.image);
+        assert_eq!(saved.len(), file.len());
+        assert_eq!(open_bytes(saved, F400).unwrap().image.data, o.image.data);
+        // Wrong format: protected, with a hint.
+        let w = open_bytes(file, F200).unwrap();
+        assert!(w.image.write_protected);
+        assert!(w.warning.unwrap().contains("400 KB"));
+        // Blank .hfe file.
+        let b = open_bytes(blank_file(std::path::Path::new("x.HFE"), F800), F800).unwrap();
+        assert!(b.warning.is_none() && b.image.data.iter().all(|&x| x == 0xE5));
+    }
 
     #[test]
     fn formats() {

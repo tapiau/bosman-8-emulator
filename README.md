@@ -56,6 +56,13 @@ macOS: `~/Library/Application Support/bosman8`; inny plik: `--config PATH`). Opc
 Dyskietka z narzędziami CP/M (PIP, STAT, ED, ZSID, …): `disks/narzedzia.img`, zob.
 [disks/README.md](disks/README.md). Obrazy edytuje `b8disk` (`b8disk put b.img PLIK.COM`, `b8disk ls b.img`).
 
+Obrazy z Gotka (`.hfe`, HxC v1) działają bezpośrednio — w `--disk-b/--disk-c`, w „Włóż…”
+i w `b8disk` — bez konwersji. Zapis zmienia w pliku tylko pole danych zapisanych sektorów
+(z nowym CRC), reszta ścieżek zostaje bit w bit, więc plik można od razu wgrać z powrotem na
+pendrive Gotka. „Nowa…” / `b8disk new` z nazwą `*.hfe` tworzy pustą dyskietkę HFE. Jeśli w
+pliku brakuje sektorów formatu wybranego zworkami (np. dyskietka 200 KB przy zworkach 400 KB),
+obraz jest wkładany jako zabezpieczony przed zapisem, a komunikat podpowiada właściwy format.
+
 Specyfikacje łącza: `none`, `loopback`, `stdio`, `tcp-listen:ADDR:PORT`,
 `tcp:HOST:PORT`, `serial:DEV[@BAUD]`. Pełna lista opcji: `--help`.
 
@@ -85,8 +92,8 @@ Bosmanów z ROM-ami UNIMOR ZJ, z [instrukcją instalacji](tools/bsrv/README.md).
 Publikacja wydania:
 
 ```sh
-git tag v0.3.2
-git push origin v0.3.2     # → workflow buduje paczki i tworzy Release na GitHubie
+git tag v0.4.0
+git push origin v0.4.0     # → workflow buduje paczki i tworzy Release na GitHubie
 ```
 
 Bez taga: zakładka Actions → Release → „Run workflow” buduje paczki jako

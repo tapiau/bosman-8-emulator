@@ -161,6 +161,7 @@ impl Drop for Emu {
 
 struct Drive {
     path: PathBuf,
+    container: disk::Container,
     /// Contents as last written to the file.
     saved: Vec<u8>,
 }
@@ -264,7 +265,7 @@ impl Worker {
         let Some(drive) = self.drives[d].as_mut() else { return };
         let Some(img) = self.m.disk(d) else { return };
         if img.data != drive.saved {
-            match std::fs::write(&drive.path, &img.data) {
+            match std::fs::write(&drive.path, drive.container.to_bytes(img)) {
                 Ok(()) => drive.saved = img.data.clone(),
                 Err(e) => {
                     let s = format!("{}: {e}", drive.path.display());
@@ -292,23 +293,27 @@ impl Worker {
                 return;
             }
         };
-        let mut wp = write_protect;
-        if data.len() != format.image_len() {
-            // Writing back would pad/truncate the file: protect it.
-            wp = true;
-            self.msg(format!(
-                "{}: {} bytes, expected {} ({} KB) for the current DIP — inserted write-protected",
-                path.display(),
-                data.len(),
-                format.image_len(),
-                format.kbytes()
-            ));
+        let o = match disk::open_bytes(data, format) {
+            Ok(o) => o,
+            Err(e) => {
+                self.msg(format!("{}: {e}", path.display()));
+                return;
+            }
+        };
+        let mut img = o.image;
+        if let Some(w) = &o.warning {
+            if matches!(o.container, disk::Container::Raw) {
+                // Writing back would pad/truncate the file: protect it.
+                img.write_protected = true;
+                self.msg(format!("{}: {w} (current DIP) — inserted write-protected", path.display()));
+            } else {
+                self.msg(format!("{}: {w}", path.display()));
+            }
         }
-        let mut img = format.from_bytes(data);
-        img.write_protected = wp;
+        img.write_protected |= write_protect;
         let saved = img.data.clone();
         self.m.insert_disk(d, Some(img));
-        self.drives[d] = Some(Drive { path, saved });
+        self.drives[d] = Some(Drive { path, container: o.container, saved });
     }
 
     fn open_printer(&mut self, cfg: Option<PrinterCfg>) {

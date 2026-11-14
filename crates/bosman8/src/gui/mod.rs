@@ -116,7 +116,7 @@ pub fn run() -> ExitCode {
             if !p.exists() {
                 let f = bosman8::disk::format_for(cfg.dip, d);
                 eprintln!("bosman8: {} not found, creating a blank {} KB disk", p.display(), f.kbytes());
-                if let Err(e) = std::fs::write(p, &f.blank().data) {
+                if let Err(e) = std::fs::write(p, bosman8::disk::blank_file(p, f)) {
                     eprintln!("bosman8: {}: {e}", p.display());
                 }
             }

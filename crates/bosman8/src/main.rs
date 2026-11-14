@@ -25,8 +25,8 @@ usage: bosman8 [options]
                          00 when --disk-c is given). Bits 3/5 select the floppy
                          format: 00 = B:200K C:200K, 08 = 400K/400K,
                          20 = 800K/800K, 28 = B:800K C:200K
-  --disk-b IMG           raw floppy image for drive B: (created blank if missing,
-                         written back on exit)
+  --disk-b IMG           floppy image for drive B: raw sectors or Gotek .hfe
+                         (created blank if missing, written back as it runs)
   --disk-c IMG           same for drive C:
   --printer FILE         append Centronics output to FILE
   --turbo                don't synchronise with the wall clock
@@ -152,24 +152,21 @@ fn find_rom(explicit: Option<&Path>) -> Result<(PathBuf, Vec<u8>), String> {
     ))
 }
 
-fn load_disk(path: &Path, format: disk::Format) -> Result<b8_chips::DiskImage, String> {
+fn load_disk(path: &Path, format: disk::Format) -> Result<(b8_chips::DiskImage, disk::Container), String> {
     match std::fs::read(path) {
         Ok(data) => {
-            if data.len() != format.image_len() {
-                eprintln!(
-                    "bosman8: warning: {} is {} bytes, expected {} for this format (padded/truncated)",
-                    path.display(),
-                    data.len(),
-                    format.image_len()
-                );
+            let o = disk::open_bytes(data, format).map_err(|e| format!("{}: {e}", path.display()))?;
+            if let Some(w) = &o.warning {
+                eprintln!("bosman8: warning: {}: {w}", path.display());
             }
-            Ok(format.from_bytes(data))
+            Ok((o.image, o.container))
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             eprintln!("bosman8: {} not found, creating a blank {} KB disk", path.display(), format.kbytes());
-            let d = format.blank();
-            std::fs::write(path, &d.data).map_err(|e| format!("{}: {e}", path.display()))?;
-            Ok(d)
+            let file = disk::blank_file(path, format);
+            std::fs::write(path, &file).map_err(|e| format!("{}: {e}", path.display()))?;
+            let o = disk::open_bytes(file, format)?;
+            Ok((o.image, o.container))
         }
         Err(e) => Err(format!("{}: {e}", path.display())),
     }
@@ -198,10 +195,13 @@ fn run() -> Result<(), String> {
     };
     let mut m = Bosman8::new(&rom, config, term, aux);
     let disks = [(0usize, &args.disk_b), (1, &args.disk_c)];
-    for (drive, path) in disks {
+    let mut containers: Vec<Option<disk::Container>> = vec![None, None];
+    for (i, (drive, path)) in disks.into_iter().enumerate() {
         if let Some(p) = path {
             let format = disk::format_for(args.dip, drive);
-            m.insert_disk(drive, Some(load_disk(p, format)?));
+            let (img, container) = load_disk(p, format)?;
+            m.insert_disk(drive, Some(img));
+            containers[i] = Some(container);
         }
     }
     let mut printer = match &args.printer {
@@ -232,9 +232,9 @@ fn run() -> Result<(), String> {
     let mut saved: Vec<Option<Vec<u8>>> = disks.iter().map(|&(d, _)| m.disk(d).map(|x| x.data.clone())).collect();
     let mut save_disks = |m: &Bosman8| -> Result<(), String> {
         for (i, &(drive, path)) in disks.iter().enumerate() {
-            if let (Some(p), Some(d)) = (path, m.disk(drive)) {
+            if let (Some(p), Some(d), Some(c)) = (path, m.disk(drive), containers[i].as_mut()) {
                 if saved[i].as_deref() != Some(&d.data[..]) {
-                    std::fs::write(p, &d.data).map_err(|e| format!("{}: {e}", p.display()))?;
+                    std::fs::write(p, c.to_bytes(d)).map_err(|e| format!("{}: {e}", p.display()))?;
                     saved[i] = Some(d.data.clone());
                 }
             }

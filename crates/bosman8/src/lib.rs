@@ -15,6 +15,7 @@ use b8_link::{Endpoint, LineParams, Parity, StopBits};
 use iz80::{Cpu, Machine};
 
 pub mod disk;
+pub mod hfe;
 pub mod cpmfs;
 mod control;
 

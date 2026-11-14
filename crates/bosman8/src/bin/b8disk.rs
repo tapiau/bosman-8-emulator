@@ -7,12 +7,14 @@
 //! b8disk get  IMG NAME [OUTFILE] [--user N] [--format ...]
 //! b8disk rm   IMG NAME... [--user N] [--format ...]
 //! ```
-//! The format defaults to the one implied by the image size (200 KB if new).
+//! IMG is a raw sector image or a Gotek `.hfe` file (`new` makes HFE when
+//! the name ends in `.hfe`). The format defaults to the one implied by the
+//! image size, or for HFE by its sector IDs (200 KB if new).
 //! Formats: 200 = default DIP (B:/C:), 400 = DIP bit 3 (`--dip 48`),
 //! 800 = DIP bit 5 (`--dip 60`).
 
 use bosman8::cpmfs::{CpmFs, Params};
-use bosman8::disk::{Format, F200, F400, F800};
+use bosman8::disk::{self, Format, F200, F400, F800};
 use std::path::Path;
 use std::process::exit;
 
@@ -21,7 +23,8 @@ fn usage() -> ! {
         "usage:\n  b8disk new IMG [--format 200|400|800]\n  b8disk ls IMG\n  \
          b8disk put IMG FILE... [--user N]\n  b8disk get IMG NAME [OUTFILE] [--user N]\n  \
          b8disk rm IMG NAME... [--user N]\n\
-         --format is taken from the image size when omitted (default 200)"
+         IMG: raw sectors or Gotek .hfe\n\
+         --format is taken from the image when omitted (default 200)"
     );
     exit(2)
 }
@@ -69,18 +72,28 @@ fn main() {
         if Path::new(&img_path).exists() {
             fail(format!("{img_path} already exists"));
         }
-        std::fs::write(&img_path, f.blank().data).unwrap_or_else(|e| fail(e));
+        std::fs::write(&img_path, disk::blank_file(Path::new(&img_path), f)).unwrap_or_else(|e| fail(e));
         println!("{img_path}: blank {} KB disk", f.kbytes());
         return;
     }
 
-    let mut img = std::fs::read(&img_path).unwrap_or_else(|e| fail(format!("{img_path}: {e}")));
-    let f = format
-        .or_else(|| format_by_kb(img.len() / 1024))
-        .unwrap_or_else(|| fail(format!("{img_path}: unknown image size {}, use --format", img.len())));
-    if img.len() < f.image_len() {
-        img.resize(f.image_len(), 0xE5);
-    }
+    let file = std::fs::read(&img_path).unwrap_or_else(|e| fail(format!("{img_path}: {e}")));
+    let f = format.unwrap_or_else(|| {
+        let guess = if bosman8::hfe::is_hfe(&file) {
+            bosman8::hfe::Hfe::parse(file.clone())
+                .ok()
+                .and_then(|h| h.first_sector_id())
+                .and_then(disk::format_by_first_sector)
+        } else {
+            format_by_kb(file.len() / 1024)
+        };
+        guess.unwrap_or_else(|| fail(format!("{img_path}: unknown disk format, use --format")))
+    });
+    let opened = disk::open_bytes(file, f).unwrap_or_else(|e| fail(format!("{img_path}: {e}")));
+    let hfe_problem = opened.warning.filter(|_| matches!(opened.container, disk::Container::Hfe(_)));
+    let mut container = opened.container;
+    let mut image = opened.image;
+    let mut img = std::mem::take(&mut image.data);
     let mut fs = CpmFs::new(&mut img, Params::for_format(f)).unwrap_or_else(|e| fail(e));
     let mut dirty = false;
     match cmd.as_str() {
@@ -120,6 +133,10 @@ fn main() {
         _ => usage(),
     }
     if dirty {
-        std::fs::write(&img_path, &img).unwrap_or_else(|e| fail(e));
+        if let Some(w) = hfe_problem {
+            fail(format!("{img_path}: {w}; not saved"));
+        }
+        image.data = img;
+        std::fs::write(&img_path, container.to_bytes(&image)).unwrap_or_else(|e| fail(e));
     }
 }

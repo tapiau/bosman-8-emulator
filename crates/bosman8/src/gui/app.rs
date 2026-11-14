@@ -211,7 +211,7 @@ impl App {
                 let dlg = image_dialog(self.cfg.drives[d].path.as_deref())
                     .set_file_name(format!("dysk{}.img", DRIVE_NAMES[d].trim_end_matches(':').to_lowercase()));
                 if let Some(p) = dlg.save_file() {
-                    match std::fs::write(&p, &f.blank().data) {
+                    match std::fs::write(&p, disk::blank_file(&p, f)) {
                         Ok(()) => {
                             tx.send(Cmd::Insert { drive: d, path: p.clone(), write_protect: false });
                             self.cfg.drives[d].path = Some(p);
@@ -488,7 +488,7 @@ fn led(ui: &mut Ui, on: bool, color: Color32) {
 }
 
 fn image_dialog(current: Option<&Path>) -> rfd::FileDialog {
-    let mut dlg = rfd::FileDialog::new().add_filter("Obraz dyskietki", &["img", "dsk", "raw"]).add_filter("Wszystkie", &["*"]);
+    let mut dlg = rfd::FileDialog::new().add_filter("Obraz dyskietki", &["img", "dsk", "raw", "hfe"]).add_filter("Wszystkie", &["*"]);
     if let Some(dir) = current.and_then(Path::parent).filter(|d| d.is_dir()) {
         dlg = dlg.set_directory(dir);
     } else if Path::new("disks").is_dir() {
