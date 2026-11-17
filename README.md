@@ -89,7 +89,7 @@ terminal — `bosman8 terminal --help` (te same co dawnego `ang3001`). `bosman8 
 --headless` — terminal bez okna (zrzuty ekranu, `--dump-text`). Build bez okna:
 `cargo build -p bosman8 --no-default-features`.
 
-Dyskietka z narzędziami CP/M (PIP, STAT, ED, ZSID, …): `disks/narzedzia.img`, zob.
+Dyskietka z narzędziami CP/M (PIP, STAT, ED, ZSID, …): `disks/narzedzia.img`; dema terminala ANG-3001 (`RUNTERM CUBE`, …): `disks/demo.img`, zob.
 [disks/README.md](disks/README.md). Obrazy edytuje `b8disk` (`b8disk put b.img PLIK.COM`, `b8disk ls b.img`).
 
 Obrazy z Gotka (`.hfe`, HxC v1) działają bezpośrednio — w `--disk-b/--disk-c`, w „Włóż…”

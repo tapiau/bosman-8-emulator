@@ -229,3 +229,5 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
 - 2026-11-14: wydanie 0.5.2 — zrzut okna w README, `--type` w trybie full, obrazki w `.deb`; testy workspace 146/0.
 - 2026-11-14: wydanie 0.5.2 opublikowane i sprawdzone: buildy i CI na 3 systemach OK, 6 plików wydania, `.deb` z
   `doc/images/bosman8-full.png`, obrazek z README dostępny na GitHubie.
+- 2026-11-17: obraz `disks/demo.img` (200 KB): 11 programów `.TER` z `ANG3001_ZJ_wersjaPG/demo` i `RUNTERM.COM`.
+- 2026-11-17: wydanie 0.5.3 — dyskietka `demo.img`.

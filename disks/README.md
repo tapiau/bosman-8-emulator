@@ -34,9 +34,33 @@ cp disks/narzedzia.img /tmp/b.img
 bosman8 --disk-b /tmp/b.img
 ```
 
-## Demo terminala ANG-3001
+## demo.img — 200 KB, dema terminala ANG-3001
 
-Dodatkowo na obrazie są pliki z `bosman-8-ang-3000-rom/demo`:
+Wszystkie programy `.TER` z `bosman-8-ang-3000-rom/ANG3001_ZJ_wersjaPG/demo` i loader:
+
+| Plik | Do czego |
+|---|---|
+| RUNTERM.COM | ładowanie i uruchamianie programów `.TER` na terminalu |
+| CUBE.TER | obracająca się kostka 3D |
+| FIRE.TER | efekt ognia |
+| STARS.TER | tunel gwiazd |
+| SIERP.TER | trójkąt Sierpińskiego |
+| SCROLL.TER, SCROLL2.TER, SCROLL3.TER | sinusoidalne scrollery |
+| SNAKE.TER | gra w węża |
+| KEYTEST.TER, KEYCODE.TER | test klawiatury, kody klawiszy |
+| BEEP.TER | test brzęczyka |
+
+```text
+bosman8 --disk-b disks/demo.img
+B:
+RUNTERM CUBE
+```
+
+Reset terminala kończy demo.
+
+## Demo na narzedzia.img
+
+Na obrazie narzedzia.img są też pliki z `bosman-8-ang-3000-rom/demo`:
 
 | Plik | Do czego |
 |---|---|
