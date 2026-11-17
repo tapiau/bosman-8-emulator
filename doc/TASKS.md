@@ -231,3 +231,4 @@ Legenda: ✅ zrobione · 🔄 w trakcie · ⏳ zaplanowane · ❓ wymaga danych/
   `doc/images/bosman8-full.png`, obrazek z README dostępny na GitHubie.
 - 2026-11-17: obraz `disks/demo.img` (200 KB): 11 programów `.TER` z `ANG3001_ZJ_wersjaPG/demo` i `RUNTERM.COM`.
 - 2026-11-17: wydanie 0.5.3 — dyskietka `demo.img`.
+- 2026-11-17: wydanie 0.5.3 opublikowane i sprawdzone: CI i Release OK, 6 plików wydania, `demo.img` w `.deb` i archiwum Windows; testy workspace 146/0.
